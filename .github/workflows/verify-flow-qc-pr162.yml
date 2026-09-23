@@ -1,0 +1,260 @@
+name: Verify Flow QC PR 162
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - review/pr-162-validation
+    paths:
+      - .github/workflows/verify-flow-qc-pr162.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.repository == 'faranm-stack/discovery'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PR_SHA: 839f7f699a4d1b2691894ab271b293d1ef5fa03e
+      TOOL_PATH: agents/flow-cytometry-referee/tools/flow-qc
+    steps:
+      - name: Download the reviewed source and verify its blob hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/pr162-source"
+          tests="$RUNNER_TEMP/pr162-tests"
+          results="$RUNNER_TEMP/pr162-results"
+          mkdir -p "$src" "$tests" "$results"
+          printf 'PR head: %s\nHarness commit: %s\nRepository: %s\nRunner: %s/%s\n' \
+            "$PR_SHA" "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$RUNNER_OS" "$RUNNER_ARCH" \
+            > "$results/provenance.txt"
+
+          while read -r expected file; do
+            curl --fail --silent --show-error --location --retry 2 \
+              --connect-timeout 15 --max-time 120 \
+              "https://raw.githubusercontent.com/microsoft/discovery/$PR_SHA/$TOOL_PATH/$file" \
+              --output "$src/$file"
+            actual="$(git hash-object "$src/$file")"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "::error::Reviewed source hash mismatch for $file"
+              exit 1
+            fi
+            printf '%s  %s\n' "$actual" "$file" >> "$results/source-blobs.txt"
+          done <<'BLOBS'
+          6f1dfea27bd5c43f1d241d2b18f6d318def9b8ee Dockerfile
+          cc56322ddbf498437a66db11d377cc1ea6a3c124 flow_qc_utils.py
+          ec0065035d27b63ede44dda8d6c5122dbaee6681 test_flow_qc_utils.py
+          BLOBS
+
+          cp "$src/test_flow_qc_utils.py" "$tests/test_flow_qc_utils.py"
+          echo "Upstream smoke tests are unchanged."
+          echo "Additional review expectations: malformed matrices are not unqualified valid;"
+          echo "acquisition-rate CV covers all equal-duration bins, including empty bins."
+
+      - name: Prepare synthetic review-acceptance tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/pr162-tests/test_review_expectations.py" <<'PY'
+          """Review acceptance criteria, separate from the unchanged upstream smoke tests."""
+
+          import hashlib
+          import json
+          from pathlib import Path
+          from typing import Any
+
+          import numpy as np
+          import pandas as pd
+          import pytest
+          from flowio import create_fcs
+          from matplotlib.image import imread
+
+          import flow_qc_utils
+
+
+          def fixture_report(
+              tmp_path: Path, time_values: np.ndarray, spillover: str | None = None
+          ) -> tuple[dict[str, Any], pd.DataFrame]:
+              count = len(time_values)
+              index = np.arange(count, dtype=np.float32)
+              values = np.column_stack(
+                  (1000 + index, 2000 + 2 * index, time_values, 1 + index)
+              ).astype(np.float32)
+              metadata = {"$TIMESTEP": "1.0"}
+              if spillover is not None:
+                  metadata["$SPILLOVER"] = spillover
+              path = tmp_path / "synthetic.fcs"
+              with path.open("wb") as handle:
+                  create_fcs(
+                      handle,
+                      values.flatten().tolist(),
+                      ["FSC-A", "SSC-A", "Time", "FITC-A"],
+                      metadata_dict=metadata,
+                  )
+              parsed_metadata, events = flow_qc_utils.load_fcs(path)
+              report = flow_qc_utils.build_qc_report(parsed_metadata, events)
+              (tmp_path / "observed-report.json").write_text(
+                  json.dumps(
+                      {"spillover_input": spillover, "report": report},
+                      indent=2,
+                      allow_nan=False,
+                  ),
+                  encoding="utf-8",
+              )
+              return report, events
+
+
+          def test_import_uses_the_reviewed_production_module() -> None:
+              path = Path(flow_qc_utils.__file__)
+              assert path == Path("/app/flow_qc_utils.py")
+              source = path.read_bytes()
+              header = f"blob {len(source)}\0".encode("ascii")
+              assert hashlib.sha1(header + source).hexdigest() == (
+                  "cc56322ddbf498437a66db11d377cc1ea6a3c124"
+              )
+
+
+          def test_known_fcs_metrics_csv_and_decodable_dashboard(tmp_path: Path) -> None:
+              report, events = fixture_report(
+                  tmp_path, np.arange(100, dtype=np.float32), "1,FITC-A,1"
+              )
+              assert report["event_count"] == 100
+              assert report["channel_count"] == 4
+              assert report["compensation"]["status"] == "present_valid"
+              summary = next(
+                  row for row in report["channel_summaries"] if row["channel"] == "FITC-A"
+              )
+              assert summary["finite_fraction"] == 1.0
+              assert summary["minimum"] == 1.0
+              assert summary["median"] == 50.5
+              assert summary["maximum"] == 100.0
+
+              artifacts = flow_qc_utils.write_qc_artifacts(
+                  report, events, tmp_path / "outputs", "known-fixture"
+              )
+              csv = pd.read_csv(artifacts["channel_summary_csv"]).set_index("channel")
+              assert csv.loc["FITC-A", "median"] == 50.5
+              assert csv.loc["FITC-A", "finite_fraction"] == 1.0
+              image = imread(artifacts["qc_dashboard"])
+              assert image.ndim == 3
+              assert image.shape[0] > 0 and image.shape[1] > 0
+
+
+          @pytest.mark.parametrize(
+              "spillover",
+              [
+                  pytest.param("1,FITC-A,not-a-number", id="nonnumeric-coefficient"),
+                  pytest.param("1,FITC-A,nan", id="nan-coefficient"),
+                  pytest.param("1,FITC-A,inf", id="infinite-coefficient"),
+                  pytest.param("0", id="zero-dimension"),
+              ],
+          )
+          def test_malformed_spillover_is_not_unqualified_valid(
+              tmp_path: Path, spillover: str
+          ) -> None:
+              report, _ = fixture_report(
+                  tmp_path, np.arange(100, dtype=np.float32), spillover
+              )
+              assert report["compensation"]["status"] != "present_valid", (
+                  f"Malformed spillover {spillover!r} was reported as "
+                  f"{report['compensation']['status']!r}. "
+                  "Resolve coefficient validation or explicitly scope/rename the status."
+              )
+
+
+          def test_missing_compensation_is_reported_as_missing(tmp_path: Path) -> None:
+              report, _ = fixture_report(tmp_path, np.arange(100, dtype=np.float32))
+              assert report["compensation"]["status"] == "absent"
+              assert report["compensation_metadata_present"] is False
+
+
+          def test_uniform_acquisition_has_zero_rate_cv(tmp_path: Path) -> None:
+              report, _ = fixture_report(tmp_path, np.arange(100, dtype=np.float32))
+              timing = report["time_integrity"]
+              assert timing["reset_count"] == 0
+              assert timing["rate_bin_count_cv"] == pytest.approx(0.0)
+
+
+          def test_full_acquisition_rate_cv_includes_empty_bins(tmp_path: Path) -> None:
+              report, _ = fixture_report(tmp_path, np.repeat([0.0, 100.0], 50))
+              timing = report["time_integrity"]
+              assert timing["largest_positive_gap"] == 100.0
+              assert timing["reset_count"] == 0
+              # Twenty bins contain [50, eighteen zeros, 50]: mean 5, population SD 15.
+              assert timing["rate_bin_count_cv"] == pytest.approx(3.0), (
+                  "The full-acquisition CV must include the 18 empty bins. "
+                  "An occupied-bin-only metric needs an explicit name/definition."
+              )
+          PY
+
+          cat > "$RUNNER_TEMP/pr162-tests/requirements.txt" <<'REQ'
+          pytest==9.1.1
+          REQ
+
+          cat > "$RUNNER_TEMP/pr162-tests/Dockerfile" <<'DOCKER'
+          FROM flow-qc-pr162:reviewed
+          USER root
+          COPY requirements.txt /tmp/pr162-test-requirements.txt
+          RUN python3 -m pip install --no-cache-dir -r /tmp/pr162-test-requirements.txt
+          USER appuser
+          DOCKER
+
+      - name: Build the unchanged production image and the pytest layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/pr162-results"
+          docker build --pull --progress=plain --tag flow-qc-pr162:reviewed \
+            "$RUNNER_TEMP/pr162-source" 2>&1 | tee "$results/production-build.log"
+          docker image inspect flow-qc-pr162:reviewed --format 'production-image-id={{.Id}}' \
+            >> "$results/provenance.txt"
+          docker build --pull=false --progress=plain --tag flow-qc-pr162-tests:reviewed \
+            "$RUNNER_TEMP/pr162-tests" 2>&1 | tee "$results/test-image-build.log"
+          docker image inspect flow-qc-pr162-tests:reviewed --format 'test-image-id={{.Id}}' \
+            >> "$results/provenance.txt"
+
+      - name: Verify production import and record the dependency versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          limits=(
+            --rm --network none --read-only --cap-drop ALL
+            --security-opt no-new-privileges --pids-limit 256 --memory 4g --cpus 2
+            --tmpfs /tmp:rw,nosuid,nodev,size=512m,mode=1777 --env HOME=/tmp
+          )
+          docker run "${limits[@]}" flow-qc-pr162:reviewed \
+            python3 -c 'import sys, flow_qc_utils; print(sys.version); print(flow_qc_utils.__file__)' \
+            2>&1 | tee "$RUNNER_TEMP/pr162-results/production-import.log"
+          docker run "${limits[@]}" flow-qc-pr162:reviewed python3 -m pip freeze \
+            > "$RUNNER_TEMP/pr162-results/production-dependencies.txt"
+          docker run "${limits[@]}" flow-qc-pr162-tests:reviewed python3 -m pip freeze \
+            > "$RUNNER_TEMP/pr162-results/test-dependencies.txt"
+
+      - name: Run upstream smoke tests and explicit review-acceptance cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Mount tests, not source: imports must use the module copied into the image.
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --pids-limit 256 --memory 4g --cpus 2 \
+            --user "$(id -u):$(id -g)" --env HOME=/tmp \
+            --tmpfs /tmp:rw,nosuid,nodev,size=512m,mode=1777 \
+            --mount "type=bind,src=$RUNNER_TEMP/pr162-tests,dst=/tests,readonly" \
+            --mount "type=bind,src=$RUNNER_TEMP/pr162-results,dst=/results" \
+            flow-qc-pr162-tests:reviewed \
+            python3 -m pytest /tests/test_flow_qc_utils.py /tests/test_review_expectations.py \
+              -vv -p no:cacheprovider --basetemp=/results/fixtures \
+              --junitxml=/results/tests.xml \
+            2>&1 | tee "$RUNNER_TEMP/pr162-results/pytest.log"
+
+      - name: Preserve results even when a check fails
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: flow-qc-pr162-${{ github.run_id }}
+          path: ${{ runner.temp }}/pr162-results
+          if-no-files-found: error
+          retention-days: 7
