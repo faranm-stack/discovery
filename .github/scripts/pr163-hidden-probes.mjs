@@ -80,6 +80,14 @@ const CASES = Object.freeze([
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
+function canonicalProblemBytes(problem) {
+  return Buffer.from(`${JSON.stringify(problem, (_key, value) => (
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, value[key]]))
+      : value
+  ), 2)}\n`);
+}
+
 async function save(path, value, replace = false) {
   const content = `${JSON.stringify(value, null, 2)}\n`;
   if (!replace) return writeFile(path, content, { flag: 'wx' });
@@ -216,11 +224,18 @@ async function nativeCase(id, caseRoot) {
   });
   const human = { goal: GOAL, details: null };
   const problemBytes = await readFile(join(caseRoot, 'selected-input/problem.json'));
+  assert.equal(problemBytes.toString('utf8'),
+    runtime.serializeCatalogHiddenFlowValue(JSON.parse(problemBytes)),
+    'Fixture serialization must match the original attested stable-JSON serializer');
   const prepared = await runtime.callCatalogHiddenFlowAction('prepare-study', human, {
     selectedProblemBytes: problemBytes, signal: abort.signal,
   }, verified.runtimeAuthority);
-  await writeFile(join(caseRoot, 'native-preparation-response.json'),
-    runtime.serializeCatalogHiddenFlowValue(prepared.response), { flag: 'wx' });
+  const preparationResponseBytes = runtime.serializeCatalogHiddenFlowValue(prepared.response);
+  await writeFile(join(caseRoot, 'native-preparation-response.json'), preparationResponseBytes,
+    { flag: 'wx' });
+  if (prepared.response.status !== 'prepared-awaiting-confirmation') {
+    process.stdout.write(preparationResponseBytes);
+  }
   assert.equal(prepared.response.status, 'prepared-awaiting-confirmation',
     'Small fixture must be accepted before its scientific outcome is interpreted');
   assert.equal(prepared.response.containsResults, false);
@@ -266,6 +281,13 @@ async function main() {
       sourceCommit: SOURCE, startedAt, cases: CASES, coverageGaps: COVERAGE_GAPS,
       command: 'node /harness/pr163-hidden-probes.mjs',
       evidenceSource: 'New isolated fork-only harness; receipts reflect this execution only',
+      protocolRepairs: {
+        priorRun: '35940651499',
+        priorEvidenceArchiveSha256: '89b97d2fe6b0573bb9b1cdd6693e53ff262e989ff7aab12150aad538749221d8',
+        fixtureChange: 'Canonical key ordering only; scientific inputs and expected outcomes unchanged. Prior native cases stopped at problem-not-canonical before solving.',
+        restartChange: 'Select only the two unchanged preparation files under their original content-addressed directory, not the five-file published output tree.',
+        priorEvidence: 'Initial receipts and raw outputs retained unchanged; not relabeled as PR defects or replaced by this run.',
+      },
       observedEnvironment: {
         node: process.versions.node, platform: process.platform,
         architecture: process.arch, uid: process.getuid(),
@@ -381,7 +403,7 @@ async function main() {
           problem.limitations = [
             'Synthetic one-coefficient finite-basis problem; not a physical-flow or continuous-domain quadrature-accuracy claim.',
           ];
-          selectedBytes = Buffer.from(`${JSON.stringify(problem, null, 2)}\n`);
+          selectedBytes = canonicalProblemBytes(problem);
           await save(join(caseRoot, 'analytic-oracle.json'), {
             basis: 'tensor-cardinal-cubic-streamfunction-v1, center=(0,0), spacing=(1,1)',
             derivation: 'B(0)=2/3, B_prime(0)=0, B_prime(0.5)=-5/8. Before positive normalization, velocity(0.5,0)=(0,5/12); velocity(0,0)=(0,0).',
@@ -410,6 +432,15 @@ async function main() {
           receipt.observed.invocations.push(run.receipt);
           if (run.receipt.timedOut || run.receipt.outputLimitExceeded || run.receipt.spawnError) {
             throw Object.assign(new Error(`Invocation blocked; see ${label}.process.json`), { blocked: true });
+          }
+          if (run.receipt.exitCode !== 0 && run.stdout.length > 0) {
+            try {
+              receipt.observed.failureResponse = {
+                invocation: label, value: JSON.parse(run.stdout.toString('utf8')),
+              };
+            } catch {
+              // Non-JSON errors remain in the unchanged raw stdout/stderr artifacts.
+            }
           }
           assert.equal(run.receipt.terminationSignal, null, `${label} terminated by signal`);
           assert.equal(run.receipt.exitCode, 0, `${label} failed; see exact stdout/stderr`);
@@ -463,9 +494,25 @@ async function main() {
             [response.resource.uri], 'cold-read-1');
           assert.equal(firstRead.length, response.resource.byteLength);
           assert.equal(sha256(firstRead), response.resource.sha256);
+          const { bundleSha256, markerSha256 } = response.preparation;
+          assert.match(bundleSha256, /^[a-f0-9]{64}$/u);
+          assert.match(markerSha256, /^[a-f0-9]{64}$/u);
+          const preparationDirectory = `flowblind-hidden-flow-preparation-${bundleSha256}`;
+          const restartInputRoot = join(caseRoot, 'restart-input');
+          await mkdir(join(restartInputRoot, preparationDirectory), { recursive: true });
+          // The selector requires these relative paths and exactly two files, not the report set.
+          for (const [name, expectedHash] of [
+            ['preparation.json', bundleSha256], ['preparation-commit.json', markerSha256],
+          ]) {
+            const bytes = await readFile(join(outputRoot, preparationDirectory, name));
+            assert.equal(sha256(bytes), expectedHash, 'Restart must reuse exact preparation bytes');
+            await writeFile(join(restartInputRoot, preparationDirectory, name), bytes, { flag: 'wx' });
+          }
+          receipt.observed.restartInputRoot = restartInputRoot;
+          receipt.observed.restartSelection = await snapshot(restartInputRoot);
           const restarted = JSON.parse(await invoke(
             join(RUNTIME, 'flowblind-run-and-verify-study-v2.mjs'), [], 'cold-restart',
-            { FLOWBLIND_INPUT_ROOT: outputRoot },
+            { FLOWBLIND_INPUT_ROOT: restartInputRoot },
           ));
           receipt.observed.restartResponse = restarted;
           assert.equal(restarted.status, 'report-complete');
