@@ -307,6 +307,25 @@ for (const [field, length] of [['license', 257], ['quantity', 257], ['vectorMean
     });
 }
 
+for (const family of ['regional', 'vector']) {
+  await check(`DOC-${family}`, `The README's documented optional declarations are actually optional for ${family}`,
+    'Using only the declarations listed as required in the README must produce a preparation', async () => {
+      const metadata = { ...(family === 'regional' ? regionalMetadata : vectorMetadata) };
+      delete metadata.provenance;
+      delete metadata.license;
+      if (family === 'vector') delete metadata.timeUnit;
+      const result = await prepareCase(
+        `readme-${family}`,
+        family === 'regional' ? regionalCsv((x, y) => [x + y, x + y]) : vectorCsv(),
+        metadata,
+        family === 'regional' ? regionalGoal : vectorGoal,
+      );
+      assert.equal(result.process.status, 0, JSON.stringify(result.response));
+      assert.equal(result.response.status, 'prepared-awaiting-confirmation');
+      return result.response;
+    });
+}
+
 for (const [id, csv, filename] of [
   ['empty-file', '', 'candidate.csv'],
   ['wrong-filename', regionalCsv((x, y) => [x + y, x + y]), 'renamed.csv'],
