@@ -121,8 +121,15 @@ jobs:
             test "${codes[1]}" -eq 0
             docker rm --force "$container"
           done
+          timeout 20s docker run --rm --name "pr163-collect-$GITHUB_RUN_ID" \
+            --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --pids-limit 32 --memory 128m --cpus 1 --user 10001:10001 \
+            --mount "type=bind,src=$results,dst=/evidence" \
+            --entrypoint /bin/sh "pr163-run:$GITHUB_RUN_ID" -ec \
+            'find /evidence -xdev -uid 10001 -type d -exec chmod a+rx -- {} +; find /evidence -xdev -uid 10001 -type f -exec chmod a+r -- {} +'
 
       - name: Exercise both original image entry points with read-only inputs
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
@@ -164,6 +171,12 @@ jobs:
             echo 'Run-image invocation blocked by the preparation or image-build result.'
             exit 0
           fi
+          timeout 20s docker run --rm --name "pr163-collect-$GITHUB_RUN_ID" \
+            --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --pids-limit 32 --memory 128m --cpus 1 --user 10001:10001 \
+            --mount "type=bind,src=$results/prepare-smoke,dst=/evidence" \
+            --entrypoint /bin/sh "pr163-run:$GITHUB_RUN_ID" -ec \
+            'find /evidence -xdev -uid 10001 -type d -exec chmod a+rx -- {} +; find /evidence -xdev -uid 10001 -type f -exec chmod a+r -- {} +'
           cp "$results/public/regional-control/input/candidate.csv" "$results/facade-run-input/"
           cp -R "$results/prepare-smoke/." "$results/facade-run-input/"
           set +e
@@ -187,6 +200,7 @@ jobs:
           docker rm --force "pr163-facade-run-$GITHUB_RUN_ID"
 
       - name: Validate actual generated artifacts against the committed JSON schemas
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
@@ -227,10 +241,18 @@ jobs:
             done
             printf '\nThis is offline conformance and scientific/contract testing, not model behavior, live human confirmation, Studio, deployment, or merge approval. See per-case receipts and outputs in the artifact.\n'
           } | tee "$results/summary.txt" >> "$GITHUB_STEP_SUMMARY"
-          for suite in public hidden prepare facade-run schemas; do
+          for suite in public hidden prepare facade-run schemas collect; do
             id="$(docker container ls --all --filter "name=^/pr163-$suite-$GITHUB_RUN_ID$" --format '{{.ID}}')"
             if [[ -n "$id" ]]; then docker rm --force "$id"; fi
           done
+          if [[ -f "$results/build-run.exit" && "$(cat "$results/build-run.exit")" == 0 ]]; then
+            timeout 20s docker run --rm --name "pr163-collect-$GITHUB_RUN_ID" \
+              --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+              --pids-limit 32 --memory 128m --cpus 1 --user 10001:10001 \
+              --mount "type=bind,src=$results,dst=/evidence" \
+              --entrypoint /bin/sh "pr163-run:$GITHUB_RUN_ID" -ec \
+              'find /evidence -xdev -uid 10001 -type d -exec chmod a+rx -- {} +; find /evidence -xdev -uid 10001 -type f -exec chmod a+r -- {} +'
+          fi
 
       - name: Preserve all receipts, inputs, outputs, source identities and logs
         if: always()
