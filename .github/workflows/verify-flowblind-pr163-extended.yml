@@ -1,0 +1,257 @@
+name: Verify FlowBlind PR 163 extended behavior
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - review/pr-163-validation
+    paths:
+      - .github/workflows/verify-flowblind-pr163-extended.yml
+      - .github/scripts/pr163-*
+
+permissions:
+  contents: read
+
+jobs:
+  extended-validation:
+    if: github.repository == 'faranm-stack/discovery'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PR_SHA: 7bc7e6af8b0d29cdf2453025c6dcaed9b435c240
+      PACKAGE_PATH: agents/flowblind-research-teammate-v2
+      PACKAGE_TREE: c3e67731f8d9ed1316d2fb33a427568111cf6c4c
+    steps:
+      - name: Verify original package and capture the review harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/pr163-source"
+          gitdir="$RUNNER_TEMP/pr163-git"
+          harness="$RUNNER_TEMP/pr163-harness"
+          results="$RUNNER_TEMP/pr163-results"
+          mkdir -p "$src" "$gitdir" "$harness" "$results/public" "$results/hidden" "$results/schemas" "$results/prepare-smoke" "$results/run-smoke" "$results/facade-run-input"
+          chmod 0777 "$results/public" "$results/hidden" "$results/schemas" "$results/prepare-smoke" "$results/run-smoke"
+          printf 'Source: microsoft/discovery#163\nSource SHA: %s\nPackage tree: %s\nHarness SHA: %s\nRun: %s/%s/actions/runs/%s\n' \
+            "$PR_SHA" "$PACKAGE_TREE" "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" \
+            > "$results/provenance.txt"
+          date -u '+Started: %Y-%m-%dT%H:%M:%SZ' >> "$results/provenance.txt"
+          printf 'Original runtime and production Dockerfiles; no test-scheduling patch in this experiment.\nNew review probes: analytic regional/vector controls, Pearson edge cases, emitted schemas, metadata limits, negative attachments, local confirmation authority, cold reports, replay/tamper, and private solver conformance.\nNo Azure, model calls, live activation, Studio UI, or upstream source changes.\n' \
+            >> "$results/provenance.txt"
+          git -c core.hooksPath=/dev/null init -q "$gitdir"
+          GIT_TERMINAL_PROMPT=0 timeout 120s git -C "$gitdir" -c credential.helper= -c core.hooksPath=/dev/null \
+            fetch --no-tags --depth=1 https://github.com/microsoft/discovery.git "$PR_SHA"
+          test "$(git -C "$gitdir" rev-parse FETCH_HEAD)" = "$PR_SHA"
+          test "$(git -C "$gitdir" rev-parse "$PR_SHA:$PACKAGE_PATH")" = "$PACKAGE_TREE"
+          git -C "$gitdir" ls-tree -r "$PR_SHA:$PACKAGE_PATH" > "$results/source-blobs.txt"
+          test "$(wc -l < "$results/source-blobs.txt")" -eq 399
+          awk '{ if ($1 != "100644" || $2 != "blob") exit 1 }' "$results/source-blobs.txt"
+          git -C "$gitdir" archive "$PR_SHA:$PACKAGE_PATH" | tar -x -C "$src"
+          while read -r mode type expected file; do
+            test "$(git hash-object --no-filters "$src/$file")" = "$expected"
+          done < "$results/source-blobs.txt"
+          echo 'Verified 399/399 original package blobs.'
+          for file in pr163-public-probes.mjs pr163-hidden-probes.mjs pr163-schema-probes.mjs pr163-review-package.json pr163-schema.Dockerfile; do
+            curl --fail --silent --show-error --location --retry 2 --connect-timeout 15 --max-time 60 \
+              "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/.github/scripts/$file" \
+              --output "$harness/$file"
+          done
+          cp -R "$harness" "$results/harness"
+          sha256sum "$harness"/* > "$results/harness-sha256.txt"
+
+      - name: Build both unchanged production tool images and the schema-check image
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/pr163-results"
+          for role in prepare run; do
+            if [[ "$role" == prepare ]]; then tool=flowblind-prepare-study-v2; else tool=flowblind-run-and-verify-study-v2; fi
+            set +e
+            timeout --signal=TERM --kill-after=30s 300s docker build --pull --progress=plain \
+              --tag "pr163-$role:$GITHUB_RUN_ID" "$RUNNER_TEMP/pr163-source/tools/$tool" \
+              2>&1 | tee "$results/build-$role.log"
+            codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$results/build-$role.exit"
+            test "${codes[1]}" -eq 0
+          done
+          set +e
+          timeout --signal=TERM --kill-after=30s 180s docker build --pull --progress=plain \
+            --file "$RUNNER_TEMP/pr163-harness/pr163-schema.Dockerfile" \
+            --tag "pr163-schemas:$GITHUB_RUN_ID" "$RUNNER_TEMP/pr163-harness" \
+            2>&1 | tee "$results/build-schemas.log"
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${codes[0]}" > "$results/build-schemas.exit"
+          test "${codes[1]}" -eq 0
+          for role in prepare run schemas; do
+            if [[ "$(cat "$results/build-$role.exit")" == 0 ]]; then
+              docker image inspect "pr163-$role:$GITHUB_RUN_ID" --format '{{.Id}} {{.Os}}/{{.Architecture}}' \
+                >> "$results/provenance.txt"
+            fi
+          done
+
+      - name: Run independent public and private conformance probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/pr163-results"
+          if [[ "$(cat "$results/build-run.exit")" != 0 ]]; then
+            printf '125\n' > "$results/public.exit"
+            printf '125\n' > "$results/hidden.exit"
+            echo 'Runtime probes blocked by the unchanged production-image build failure.'
+            exit 0
+          fi
+          for suite in public hidden; do
+            container="pr163-$suite-$GITHUB_RUN_ID"
+            set +e
+            timeout --signal=TERM --kill-after=30s 240s docker run --name "$container" \
+              --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+              --pids-limit 256 --memory 3g --cpus 2 --user 10001:10001 \
+              --tmpfs /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777 \
+              --tmpfs /work:rw,noexec,nosuid,nodev,size=256m,mode=1777 \
+              --mount "type=bind,src=$RUNNER_TEMP/pr163-harness,dst=/harness,readonly" \
+              --mount "type=bind,src=$results/$suite,dst=/results/$suite" \
+              --env HOME=/tmp --env NO_COLOR=1 \
+              --entrypoint node "pr163-run:$GITHUB_RUN_ID" "/harness/pr163-$suite-probes.mjs" \
+              2>&1 | tee "$results/$suite.log"
+            codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$results/$suite.exit"
+            test "${codes[1]}" -eq 0
+            docker rm --force "$container"
+          done
+
+      - name: Exercise both original image entry points with read-only inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/pr163-results"
+          if [[ "$(cat "$results/build-prepare.exit")" != 0 || ! -f "$results/public/regional-control/input/candidate.csv" ]]; then
+            printf '125\n' > "$results/prepare-entrypoint.exit"
+            printf '125\n' > "$results/run-entrypoint.exit"
+            echo 'Prepare-image invocation is blocked; no fabricated fallback input will be used.'
+            exit 0
+          fi
+          set +e
+          timeout --signal=TERM --kill-after=10s 60s docker run --name "pr163-prepare-$GITHUB_RUN_ID" \
+            --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --pids-limit 256 --memory 3g --cpus 2 \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777 \
+            --mount "type=bind,src=$results/public/regional-control/input,dst=/mnt/input,readonly" \
+            --mount "type=bind,src=$results/prepare-smoke,dst=/output" \
+            --env 'FLOWBLIND_RESEARCH_GOAL=Compare reference and candidate agreement across spatial regions.' \
+            --env 'FLOWBLIND_DECISION_QUESTION=Which descriptive evidence is available?' \
+            --env 'FLOWBLIND_NEXT_EVIDENCE_INTENT=Review the resulting evidence.' \
+            --env 'FLOWBLIND_METADATA_QUANTITY=Synthetic scalar values' \
+            --env 'FLOWBLIND_METADATA_REFERENCE_MEANING=Analytically specified reference values.' \
+            --env 'FLOWBLIND_METADATA_CANDIDATE_MEANING=Analytically specified candidate values.' \
+            --env 'FLOWBLIND_METADATA_COORDINATE_UNIT=mm' \
+            --env 'FLOWBLIND_METADATA_VALUE_UNIT=validation units' \
+            --env 'FLOWBLIND_METADATA_PROVENANCE=Synthetic fixture generated by the PR 163 review harness.' \
+            --env 'FLOWBLIND_METADATA_LICENSE=CC0-1.0 synthetic fixture' \
+            "pr163-prepare:$GITHUB_RUN_ID" \
+            > "$results/prepare-entrypoint.json" 2> "$results/prepare-entrypoint.stderr"
+          code=$?
+          set -e
+          if [[ "$code" == 0 ]]; then
+            if ! jq -e '.status == "prepared-awaiting-confirmation" and .containsResults == false' "$results/prepare-entrypoint.json"; then code=1; fi
+          fi
+          printf '%s\n' "$code" > "$results/prepare-entrypoint.exit"
+          docker rm --force "pr163-prepare-$GITHUB_RUN_ID"
+          if [[ "$code" != 0 || "$(cat "$results/build-run.exit")" != 0 ]]; then
+            printf '125\n' > "$results/run-entrypoint.exit"
+            echo 'Run-image invocation blocked by the preparation or image-build result.'
+            exit 0
+          fi
+          cp "$results/public/regional-control/input/candidate.csv" "$results/facade-run-input/"
+          cp -R "$results/prepare-smoke/." "$results/facade-run-input/"
+          set +e
+          timeout --signal=TERM --kill-after=10s 60s docker run --name "pr163-facade-run-$GITHUB_RUN_ID" \
+            --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --pids-limit 256 --memory 3g --cpus 2 \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777 \
+            --mount "type=bind,src=$results/facade-run-input,dst=/mnt/input,readonly" \
+            --mount "type=bind,src=$results/run-smoke,dst=/output" \
+            --env 'FLOWBLIND_RESEARCH_GOAL=Compare reference and candidate agreement across spatial regions.' \
+            --env 'FLOWBLIND_DECISION_QUESTION=Which descriptive evidence is available?' \
+            --env 'FLOWBLIND_NEXT_EVIDENCE_INTENT=Review the resulting evidence.' \
+            "pr163-run:$GITHUB_RUN_ID" \
+            > "$results/run-entrypoint.json" 2> "$results/run-entrypoint.stderr"
+          code=$?
+          set -e
+          if [[ "$code" == 0 ]]; then
+            if ! jq -e '.status == "report-complete" and .containsResults == true and .result.verifiedStudy.deterministicReplayMatched == true' "$results/run-entrypoint.json"; then code=1; fi
+          fi
+          printf '%s\n' "$code" > "$results/run-entrypoint.exit"
+          docker rm --force "pr163-facade-run-$GITHUB_RUN_ID"
+
+      - name: Validate actual generated artifacts against the committed JSON schemas
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/pr163-results"
+          if [[ "$(cat "$results/build-schemas.exit")" != 0 || ! -f "$results/public/schema-cases.json" ]]; then
+            printf '125\n' > "$results/schemas.exit"
+            echo 'Schema checks blocked by a missing validator image or missing runtime artifacts.'
+            exit 0
+          fi
+          set +e
+          timeout --signal=TERM --kill-after=10s 90s docker run --name "pr163-schemas-$GITHUB_RUN_ID" \
+            --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --pids-limit 128 --memory 1g --cpus 2 \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777 \
+            --mount "type=bind,src=$RUNNER_TEMP/pr163-source,dst=/source,readonly" \
+            --mount "type=bind,src=$results/public,dst=/results/public,readonly" \
+            --mount "type=bind,src=$results/schemas,dst=/results/schemas" \
+            "pr163-schemas:$GITHUB_RUN_ID" 2>&1 | tee "$results/schemas.log"
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${codes[0]}" > "$results/schemas.exit"
+          test "${codes[1]}" -eq 0
+          docker rm --force "pr163-schemas-$GITHUB_RUN_ID"
+
+      - name: Summarize actual results and clean only this run's containers
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/pr163-results"
+          mkdir -p "$results"
+          {
+            printf '## PR 163 extended validation\n\nOriginal source: `%s`\n\nHarness: `%s`\n\n' "$PR_SHA" "$GITHUB_SHA"
+            printf '| Check | Exit code (0=passed, 125=blocked) |\n|---|---|\n'
+            for check in build-prepare build-run build-schemas public hidden prepare-entrypoint run-entrypoint schemas; do
+              if [[ -f "$results/$check.exit" ]]; then code="$(cat "$results/$check.exit")"; else code=NOT-RUN; fi
+              printf '| %s | %s |\n' "$check" "$code"
+            done
+            printf '\nThis is offline conformance and scientific/contract testing, not model behavior, live human confirmation, Studio, deployment, or merge approval. See per-case receipts and outputs in the artifact.\n'
+          } | tee "$results/summary.txt" >> "$GITHUB_STEP_SUMMARY"
+          for suite in public hidden prepare facade-run schemas; do
+            id="$(docker container ls --all --filter "name=^/pr163-$suite-$GITHUB_RUN_ID$" --format '{{.ID}}')"
+            if [[ -n "$id" ]]; then docker rm --force "$id"; fi
+          done
+
+      - name: Preserve all receipts, inputs, outputs, source identities and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: flowblind-pr163-extended-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pr163-results
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Fail the gate if any required check failed or was blocked
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          for check in build-prepare build-run build-schemas public hidden prepare-entrypoint run-entrypoint schemas; do
+            file="$RUNNER_TEMP/pr163-results/$check.exit"
+            if [[ ! -f "$file" || "$(cat "$file")" != 0 ]]; then
+              echo "::error::$check did not pass; inspect the retained evidence."
+              failed=1
+            fi
+          done
+          exit "$failed"
