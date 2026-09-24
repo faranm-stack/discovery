@@ -1,4 +1,4 @@
-name: Verify FlowBlind PR 163 package
+name: Verify FlowBlind PR 163 test-only fix
 
 on:
   workflow_dispatch:
@@ -54,7 +54,7 @@ jobs:
             fi
           done < "$results/source-blobs.txt"
           echo "Verified 399 unchanged package files against the pinned Git tree."
-          printf 'Source verification: 399/399 blobs matched\nCommand: npm test\nScope: unchanged package Node tests only\n' \
+          printf 'Source verification: 399/399 original blobs matched\nCommand: npm test after a three-line candidate test-only patch\nScope: test scheduling fix only; no runtime changes\nOriginal failed run: https://github.com/faranm-stack/discovery/actions/runs/35937107661\n' \
             >> "$results/provenance.txt"
 
       - name: Pull the pinned Node runtime
@@ -70,14 +70,14 @@ jobs:
           printf 'Runtime image: %s\nContainment: non-root; no network; read-only root; no secrets; no Docker socket\nLimits: 8 minutes, 2 CPUs, 3 GiB RAM, 256 PIDs, bounded temporary filesystems\n' \
             "$NODE_IMAGE" >> "$results/provenance.txt"
 
-      - name: Run unchanged npm test without network or credentials
+      - name: Verify the three-line test fix without network or credentials
         shell: bash
         run: |
           set -euo pipefail
           results="$RUNNER_TEMP/pr163-results"
           container="flowblind-pr163-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           set +e
-          timeout --signal=TERM --kill-after=30s 8m docker run \
+          timeout --signal=TERM --kill-after=30s 8m docker run --interactive \
             --name "$container" --platform linux/amd64 \
             --network none --read-only --cap-drop ALL \
             --security-opt no-new-privileges --pids-limit 256 \
@@ -86,14 +86,51 @@ jobs:
             --tmpfs /work:rw,noexec,nosuid,nodev,size=1g,mode=1777 \
             --mount "type=bind,src=$RUNNER_TEMP/pr163-source,dst=/source,readonly" \
             --env HOME=/tmp --env CI=true --env NO_COLOR=1 \
-            --entrypoint /bin/sh "$NODE_IMAGE" -c '
-              set -eu
-              cp -R /source /work/package
-              cd /work/package
-              printf "Node: "; node --version
-              printf "npm: "; npm --version
-              npm test
-            ' 2>&1 | tee "$results/npm-test.log"
+            --entrypoint /bin/sh "$NODE_IMAGE" -s 2>&1 <<'CONTAINER' | tee "$results/npm-test.log"
+          set -eu
+          cp -R /source /work/package
+          cd /work/package
+          printf "Node: "; node --version
+          printf "npm: "; npm --version
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const path = 'tests/scenario-coverage.node-test.mjs';
+          const original = readFileSync(path);
+          const blob = bytes => createHash('sha1')
+            .update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+          assert.equal(blob(original), 'abb836ed11ab52f80c2dad5f9b7147dfc4492dcb');
+          const replacements = [
+            [
+              "test('V2-HID-007/008/009/014 export an honest deterministic external driver', async () => {",
+              "test('V2-HID-007/008/009/014 export an honest deterministic external driver', async (t) => {",
+            ],
+            [
+              "  test('V2-HID-005 retained exact-null and tolerance-speed bytes prepare without rewriting', async () => {",
+              "  await t.test('V2-HID-005 retained exact-null and tolerance-speed bytes prepare without rewriting', async () => {",
+            ],
+            [
+              "  test('V2-HID-005/007/008/009/014 attest the exact-byte bridge extension', async () => {",
+              "  await t.test('V2-HID-005/007/008/009/014 attest the exact-byte bridge extension', async () => {",
+            ],
+          ];
+          let candidate = original.toString('utf8');
+          for (const [before, after] of replacements) {
+            assert.equal(candidate.split(before).length, 2, 'Patch target must occur exactly once');
+            candidate = candidate.replace(before, after);
+          }
+          const bytes = Buffer.from(candidate, 'utf8');
+          assert.equal(blob(bytes), '29ece3e4bb4288af4b08a82d90ffac37a99d16f9');
+          writeFileSync(path, bytes);
+          console.log('Candidate patch: exactly three test-registration lines; all assertions retained.');
+          console.log(`Original test blob: ${blob(original)}; candidate test blob: ${blob(bytes)}`);
+          for (const [before, after] of replacements) {
+            console.log(`- ${before}\n+ ${after}`);
+          }
+          NODE
+          npm test
+          CONTAINER
           statuses=("${PIPESTATUS[@]}")
           set -e
           test_exit="${statuses[0]}"
@@ -108,14 +145,16 @@ jobs:
           skipped="$(awk '$1 == "#" && $2 == "skipped" { n=$3 } END { print n }' "$results/npm-test.log")"
           todo="$(awk '$1 == "#" && $2 == "todo" { n=$3 } END { print n }' "$results/npm-test.log")"
           {
-            printf 'FlowBlind PR #163: unchanged package tests\n'
+            printf 'FlowBlind PR #163: candidate three-line test-scheduling fix\n'
             printf 'Source SHA: %s\nHarness SHA: %s\n' "$PR_SHA" "$GITHUB_SHA"
+            printf 'Original failure retained: https://github.com/faranm-stack/discovery/actions/runs/35937107661\n'
+            printf 'Only the temporary test copy is patched; upstream PR and all scientific/runtime code remain unchanged.\n'
             printf 'Tests: %s; passed: %s; failed: %s; cancelled: %s; skipped: %s; todo: %s\n' \
               "${tests:-MISSING}" "${passed:-MISSING}" "${failed:-MISSING}" \
               "${cancelled:-MISSING}" "${skipped:-MISSING}" "${todo:-MISSING}"
             printf 'Process exit: %s\n' "$test_exit"
             printf 'Not tested: new review regressions, production image builds, pinned Python solver, model behavior, Discovery Studio, or live deployment.\n'
-            printf 'Passing this job does not approve the PR or resolve the review findings.\n'
+            printf 'Passing this experiment does not make the unmodified PR pass or resolve the scientific review findings.\n'
           } | tee "$results/test-summary.txt" >> "$GITHUB_STEP_SUMMARY"
           if [[ "$test_exit" -ne 0 || "$log_exit" -ne 0 ]]; then
             echo "::error::Package execution or log capture failed; inspect the preserved log."
@@ -127,11 +166,11 @@ jobs:
               exit 1
             fi
           done
-          if [[ "$tests" -eq 0 || "$passed" -eq 0 || "$failed" -ne 0 || "$cancelled" -ne 0 ]]; then
-            echo "::error::The package test suite did not complete with positive passing coverage."
+          if [[ "$tests" -ne 63 || "$passed" -ne 63 || "$failed" -ne 0 || "$cancelled" -ne 0 || "$skipped" -ne 0 || "$todo" -ne 0 ]]; then
+            echo "::error::The candidate must pass all 63 existing tests without cancellations or skips."
             exit 1
           fi
-          echo "Package tests completed; skips and remaining scope are recorded in the summary."
+          echo "All 63 tests passed with only the three-line candidate test fix."
 
       - name: Remove only this run's test container
         if: always()
@@ -148,7 +187,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: flowblind-pr163-package-${{ github.run_id }}-${{ github.run_attempt }}
+          name: flowblind-pr163-test-fix-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/pr163-results
           if-no-files-found: error
           retention-days: 7
