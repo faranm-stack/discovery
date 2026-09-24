@@ -1,0 +1,154 @@
+name: Verify FlowBlind PR 163 package
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - review/pr-163-validation
+    paths:
+      - .github/workflows/verify-flowblind-pr163.yml
+
+permissions:
+  contents: read
+
+jobs:
+  package-tests:
+    if: github.repository == 'faranm-stack/discovery'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PR_SHA: 7bc7e6af8b0d29cdf2453025c6dcaed9b435c240
+      PACKAGE_PATH: agents/flowblind-research-teammate-v2
+      PACKAGE_TREE: c3e67731f8d9ed1316d2fb33a427568111cf6c4c
+      NODE_IMAGE: node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94
+    steps:
+      - name: Fetch exact PR source and verify all 399 package blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          gitdir="$RUNNER_TEMP/pr163-git"
+          src="$RUNNER_TEMP/pr163-source"
+          results="$RUNNER_TEMP/pr163-results"
+          mkdir -p "$gitdir" "$src" "$results"
+          printf 'Source repository: microsoft/discovery\nPR: 163\nPR head: %s\nPackage tree: %s\nHarness repository: %s\nHarness commit: %s\nRun: %s/%s/actions/runs/%s\nAttempt: %s\nRunner: %s/%s\n' \
+            "$PR_SHA" "$PACKAGE_TREE" "$GITHUB_REPOSITORY" "$GITHUB_SHA" \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" \
+            "$GITHUB_RUN_ATTEMPT" "$RUNNER_OS" "$RUNNER_ARCH" \
+            > "$results/provenance.txt"
+          date -u '+Started: %Y-%m-%dT%H:%M:%SZ' >> "$results/provenance.txt"
+          git -c core.hooksPath=/dev/null init -q "$gitdir"
+          GIT_TERMINAL_PROMPT=0 timeout 120s git -C "$gitdir" \
+            -c credential.helper= -c core.hooksPath=/dev/null \
+            fetch --no-tags --depth=1 https://github.com/microsoft/discovery.git "$PR_SHA"
+          test "$(git -C "$gitdir" rev-parse FETCH_HEAD)" = "$PR_SHA"
+          test "$(git -C "$gitdir" rev-parse "$PR_SHA:$PACKAGE_PATH")" = "$PACKAGE_TREE"
+          git -C "$gitdir" ls-tree -r "$PR_SHA:$PACKAGE_PATH" > "$results/source-blobs.txt"
+          test "$(wc -l < "$results/source-blobs.txt")" -eq 399
+          awk '{ if ($1 != "100644" || $2 != "blob") exit 1 }' "$results/source-blobs.txt"
+          git -C "$gitdir" archive "$PR_SHA:$PACKAGE_PATH" | tar -x -C "$src"
+          while read -r mode type expected file; do
+            actual="$(git hash-object --no-filters "$src/$file")"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "::error::Package blob mismatch: $file"
+              exit 1
+            fi
+          done < "$results/source-blobs.txt"
+          echo "Verified 399 unchanged package files against the pinned Git tree."
+          printf 'Source verification: 399/399 blobs matched\nCommand: npm test\nScope: unchanged package Node tests only\n' \
+            >> "$results/provenance.txt"
+
+      - name: Pull the pinned Node runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/pr163-results"
+          timeout 180s docker pull --platform linux/amd64 "$NODE_IMAGE" \
+            2>&1 | tee "$results/runtime-pull.log"
+          docker image inspect "$NODE_IMAGE" \
+            --format 'Runtime image ID: {{.Id}}; OS/architecture: {{.Os}}/{{.Architecture}}' \
+            >> "$results/provenance.txt"
+          printf 'Runtime image: %s\nContainment: non-root; no network; read-only root; no secrets; no Docker socket\nLimits: 8 minutes, 2 CPUs, 3 GiB RAM, 256 PIDs, bounded temporary filesystems\n' \
+            "$NODE_IMAGE" >> "$results/provenance.txt"
+
+      - name: Run unchanged npm test without network or credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/pr163-results"
+          container="flowblind-pr163-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          set +e
+          timeout --signal=TERM --kill-after=30s 8m docker run \
+            --name "$container" --platform linux/amd64 \
+            --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --pids-limit 256 \
+            --memory 3g --cpus 2 --user 1000:1000 \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777 \
+            --tmpfs /work:rw,noexec,nosuid,nodev,size=1g,mode=1777 \
+            --mount "type=bind,src=$RUNNER_TEMP/pr163-source,dst=/source,readonly" \
+            --env HOME=/tmp --env CI=true --env NO_COLOR=1 \
+            --entrypoint /bin/sh "$NODE_IMAGE" -c '
+              set -eu
+              cp -R /source /work/package
+              cd /work/package
+              printf "Node: "; node --version
+              printf "npm: "; npm --version
+              npm test
+            ' 2>&1 | tee "$results/npm-test.log"
+          statuses=("${PIPESTATUS[@]}")
+          set -e
+          test_exit="${statuses[0]}"
+          log_exit="${statuses[1]}"
+          printf '%s\n' "$test_exit" > "$results/test-exit-code.txt"
+          printf 'Test exit code: %s\nLog capture exit code: %s\n' "$test_exit" "$log_exit" \
+            >> "$results/provenance.txt"
+          tests="$(awk '$1 == "#" && $2 == "tests" { n=$3 } END { print n }' "$results/npm-test.log")"
+          passed="$(awk '$1 == "#" && $2 == "pass" { n=$3 } END { print n }' "$results/npm-test.log")"
+          failed="$(awk '$1 == "#" && $2 == "fail" { n=$3 } END { print n }' "$results/npm-test.log")"
+          cancelled="$(awk '$1 == "#" && $2 == "cancelled" { n=$3 } END { print n }' "$results/npm-test.log")"
+          skipped="$(awk '$1 == "#" && $2 == "skipped" { n=$3 } END { print n }' "$results/npm-test.log")"
+          todo="$(awk '$1 == "#" && $2 == "todo" { n=$3 } END { print n }' "$results/npm-test.log")"
+          {
+            printf 'FlowBlind PR #163: unchanged package tests\n'
+            printf 'Source SHA: %s\nHarness SHA: %s\n' "$PR_SHA" "$GITHUB_SHA"
+            printf 'Tests: %s; passed: %s; failed: %s; cancelled: %s; skipped: %s; todo: %s\n' \
+              "${tests:-MISSING}" "${passed:-MISSING}" "${failed:-MISSING}" \
+              "${cancelled:-MISSING}" "${skipped:-MISSING}" "${todo:-MISSING}"
+            printf 'Process exit: %s\n' "$test_exit"
+            printf 'Not tested: new review regressions, production image builds, pinned Python solver, model behavior, Discovery Studio, or live deployment.\n'
+            printf 'Passing this job does not approve the PR or resolve the review findings.\n'
+          } | tee "$results/test-summary.txt" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$test_exit" -ne 0 || "$log_exit" -ne 0 ]]; then
+            echo "::error::Package execution or log capture failed; inspect the preserved log."
+            exit 1
+          fi
+          for count in "$tests" "$passed" "$failed" "$cancelled" "$skipped" "$todo"; do
+            if [[ ! "$count" =~ ^[0-9]+$ ]]; then
+              echo "::error::Missing or malformed Node test counts; no passing claim is allowed."
+              exit 1
+            fi
+          done
+          if [[ "$tests" -eq 0 || "$passed" -eq 0 || "$failed" -ne 0 || "$cancelled" -ne 0 ]]; then
+            echo "::error::The package test suite did not complete with positive passing coverage."
+            exit 1
+          fi
+          echo "Package tests completed; skips and remaining scope are recorded in the summary."
+
+      - name: Remove only this run's test container
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          container="flowblind-pr163-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          id="$(docker container ls --all --filter "name=^/${container}$" --format '{{.ID}}')"
+          if [[ -n "$id" ]]; then
+            docker rm --force "$id"
+          fi
+
+      - name: Preserve provenance and logs even on failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: flowblind-pr163-package-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pr163-results
+          if-no-files-found: error
+          retention-days: 7
