@@ -11,7 +11,7 @@
       <a href="https://aka.ms/discovery/download/osx/current"><strong>macOS</strong></a>
     </td>
     <td valign="middle">
-      A self-contained desktop app - no SDK, no cloud setup. Current release: <strong>v0.15.14</strong>.<br>
+      A self-contained desktop app - no SDK, no cloud setup. Current release: <strong>v0.15.16</strong>.<br>
       <sub>Windows x64, Windows ARM64, and macOS installers are available today. Linux is not supported yet.</sub><br><br>
       🛠️ <a href="docs/discovery-app/install.md">Install guide</a> - setup, verification, and upgrade steps.
     </td>
@@ -22,9 +22,9 @@
 
 | Version | Date | Platform | Installer |
 | --- | --- | --- | --- |
-| v0.15.13 _(previous)_ | 2026-09-01 | Windows x64 | [`Discovery-app-0.15.13-preview-win-x64.exe`](https://aka.ms/discovery/download/previous) |
-| v0.15.13 _(previous)_ | 2026-09-01 | Windows Arm64 | [`Discovery-app-0.15.13-preview-win-arm64.exe`](https://aka.ms/discovery/download/arm64/previous) |
-| No previous version | 2026-09-01 | macOS | *No previous version available.* |
+| v0.15.15 _(previous)_ | 2026-09-08 | Windows x64 | [`Discovery-app-0.15.15-preview-win-x64.exe`](https://aka.ms/discovery/download/previous) |
+| v0.15.15 _(previous)_ | 2026-09-08 | Windows Arm64 | [`Discovery-app-0.15.15-preview-win-arm64.exe`](https://aka.ms/discovery/download/arm64/previous) |
+| v0.15.15 _(previous)_ | 2026-09-08 | macOS | [`Discovery-app-0.15.15-preview-osx-arm64.dmg`](https://aka.ms/discovery/download/osx/previous) |
 
 ---
 
@@ -67,7 +67,7 @@ For an app-specific 15-minute hands-on tour, see [`docs/discovery-app/quickstart
 | 📑 **[`docs/`](/docs/)** | Documentation and pointers for both Microsoft Discovery and the Discovery app, including documentation for authoring guides and schemas. | Learning more about Discovery experiences and best practices. |
 | 🎥 **[How to videos](/docs/how-to-videos/README.md)** | Curated how-to video content for Discovery workflows and onboarding. | Watching guided walkthroughs and quick task demos. |
 | 🧰 **[`starter-kits/`](/starter-kits/)** | Catalog of starter kits — `kit.json` manifests that bundle one or more catalog agents into a launchable scenario. | Browsing pre-built workflows, or publishing a new kit. |
-| 💬 **[Discussions](https://github.com/microsoft/discovery/discussions)** | Q&A, Ideas, Bugs, and Show-and-tell — the single place for everything from "how do I…?" to bug reports, ideas, and sharing what you've built. | Asking questions, suggesting ideas, sharing what you've built, and reporting bugs. |
+| 💬 **[Discussions](https://techcommunity.microsoft.com/category/azure/discussions/microsoft-discovery-discussions)** | Q&A, Ideas, Bugs, and Show-and-tell — the single place for everything from "how do I…?" to bug reports, ideas, and sharing what you've built. | Asking questions, suggesting ideas, sharing what you've built, and reporting bugs. |
 | 🧪 **[`.github/skills/`](.github/skills/)** | Three Copilot skills auto-discovered by Copilot CLI and VS Code Copilot Chat — for browsing the catalog and deploying agents / starter kits to **Microsoft Discovery services** (cloud, via Microsoft Foundry). Not used by the local Discovery app today. | Researchers and developers integrating the catalog into a Microsoft Foundry workflow. |
 
 ---
