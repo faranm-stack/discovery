@@ -1,0 +1,104 @@
+name: Verify PR 100 capture failure exits
+
+on:
+  push:
+    branches:
+      - review/pr-100-exit-validation-20260925
+    paths:
+      - .github/workflows/verify-agent-evaluation-pr100.yml
+      - .github/scripts/pr100_capture_exit_probe.py
+
+permissions:
+  contents: read
+
+jobs:
+  offline-regression:
+    if: github.repository == 'faranm-stack/discovery'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PR_SHA: 1a16c98f1aadc6a8d20d9ac9956b8c35f68d8c28
+      PACKAGE_TREE: 7e6ebcee77af679fdb268b65e081f53a45c9c862
+      PYTHON_IMAGE: python:3.11-slim-bookworm@sha256:4b4c524dc3dce996864e030c7bd9c6b0e517597189fee48f48e05b499442444b
+    steps:
+      - name: Verify unchanged PR source and record the harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/pr100-source"
+          gitdir="$RUNNER_TEMP/pr100-git"
+          harness="$RUNNER_TEMP/pr100-harness"
+          results="$RUNNER_TEMP/pr100-results"
+          mkdir -p "$src" "$gitdir" "$harness" "$results"
+          chmod 0777 "$results"
+          printf 'Source: microsoft/discovery#100\nSource SHA: %s\nPackage tree: %s\nHarness SHA: %s\nRun: %s/%s/actions/runs/%s\n' \
+            "$PR_SHA" "$PACKAGE_TREE" "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" \
+            > "$results/provenance.txt"
+          date -u '+Started: %Y-%m-%dT%H:%M:%SZ' >> "$results/provenance.txt"
+          printf '15 predeclared offline CLI cases. No production patches, credentials, package installs, Azure calls, or model calls.\n' \
+            >> "$results/provenance.txt"
+          git -c core.hooksPath=/dev/null init -q "$gitdir"
+          GIT_TERMINAL_PROMPT=0 timeout 120s git -C "$gitdir" -c credential.helper= -c core.hooksPath=/dev/null \
+            fetch --no-tags --depth=1 https://github.com/microsoft/discovery.git "$PR_SHA"
+          test "$(git -C "$gitdir" rev-parse FETCH_HEAD)" = "$PR_SHA"
+          test "$(git -C "$gitdir" rev-parse "$PR_SHA:utilities/agent-evaluation")" = "$PACKAGE_TREE"
+          git -C "$gitdir" ls-tree -r "$PR_SHA:utilities/agent-evaluation" > "$results/source-blobs.txt"
+          test "$(wc -l < "$results/source-blobs.txt")" -eq 14
+          awk '{ if ($1 != "100644" || $2 != "blob") exit 1 }' "$results/source-blobs.txt"
+          git -C "$gitdir" archive "$PR_SHA:utilities/agent-evaluation" | tar -x -C "$src"
+          while read -r mode type expected file; do
+            test "$(git hash-object --no-filters "$src/$file")" = "$expected"
+          done < "$results/source-blobs.txt"
+          echo 'Verified 14/14 original utility blobs.'
+          curl --fail --silent --show-error --location --retry 2 --connect-timeout 15 --max-time 60 \
+            "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/.github/scripts/pr100_capture_exit_probe.py" \
+            --output "$harness/pr100_capture_exit_probe.py"
+          cp "$harness/pr100_capture_exit_probe.py" "$results/pr100_capture_exit_probe.py"
+          sha256sum "$harness/pr100_capture_exit_probe.py" > "$results/harness-sha256.txt"
+
+      - name: Obtain the pinned Python runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 120s docker pull "$PYTHON_IMAGE"
+          docker image inspect "$PYTHON_IMAGE" --format '{{.Id}} {{.Os}}/{{.Architecture}} {{json .RepoDigests}}' \
+            >> "$RUNNER_TEMP/pr100-results/provenance.txt"
+
+      - name: Run real CLI regression assertions without network or credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/pr100-results"
+          container="pr100-exits-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          marker="$(cat /proc/sys/kernel/random/uuid)"
+          echo "::stop-commands::$marker"
+          set +e
+          timeout --signal=TERM --kill-after=10s 180s docker run --rm --name "$container" \
+            --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --pids-limit 64 --memory 256m --cpus 1 --user 10001:10001 \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777 \
+            --mount "type=bind,src=$RUNNER_TEMP/pr100-source,dst=/source,readonly" \
+            --mount "type=bind,src=$RUNNER_TEMP/pr100-harness,dst=/harness,readonly" \
+            --mount "type=bind,src=$results,dst=/results" \
+            --env HOME=/tmp \
+            --entrypoint python "$PYTHON_IMAGE" \
+            -I -B /harness/pr100_capture_exit_probe.py --source /source/evaluators --results /results \
+            2>&1 | tee "$results/test.log"
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          echo "::$marker::"
+          printf '%s\n' "${codes[0]}" > "$results/test.exit"
+          if docker container inspect "$container" >/dev/null 2>&1; then
+            docker rm --force "$container"
+          fi
+          test "${codes[1]}" -eq 0
+          exit "${codes[0]}"
+
+      - name: Retain source identity, actual exits, assertions, and per-case outputs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr100-offline-exit-evidence
+          path: ${{ runner.temp }}/pr100-results
+          retention-days: 14
+          if-no-files-found: error
