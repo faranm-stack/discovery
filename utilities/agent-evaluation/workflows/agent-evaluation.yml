@@ -67,6 +67,10 @@ jobs:
       WORKSPACE_API_URL: ${{ vars.DISCOVERY_WORKSPACE_API_URL }}
       FOUNDRY_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
       MODEL_DEPLOYMENT_NAME: ${{ vars.LLM_JUDGE_MODEL_DEPLOYMENT_NAME }}
+      DISCOVERY_PROJECT: ${{ inputs.discoveryProject }}
+      AGENT: ${{ inputs.agent }}
+      DATASET_DIR: ${{ inputs.datasetDir }}
+      SUITES: ${{ inputs.suites }}
       MAX_QUERIES: ${{ inputs.maxQueries }}
       CONCURRENCY: ${{ inputs.concurrency }}
       FAIL_ON: ${{ inputs.failOn }}
@@ -99,19 +103,46 @@ jobs:
           AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
         run: |
+          set -euo pipefail
+
+          # Resolve the requested dataset directory and confirm it stays inside
+          # the checked-out workspace before handing it to the pipeline.
+          dataset_dir="$(realpath -m -- "${GITHUB_WORKSPACE}/${DATASET_DIR}")"
+          case "${dataset_dir}/" in
+            "${GITHUB_WORKSPACE}"/*) ;;
+            *)
+              echo "::error::datasetDir '${DATASET_DIR}' resolves outside the workspace (${dataset_dir})"
+              exit 1
+              ;;
+          esac
+          if [ ! -d "${dataset_dir}" ]; then
+            echo "::error::dataset directory '${dataset_dir}' does not exist"
+            exit 1
+          fi
+
           python3 "${GITHUB_WORKSPACE}/utilities/agent-evaluation/evaluators/pipeline.py" \
             --workspace-api-url "${WORKSPACE_API_URL}" \
-            --discovery-project "${{ inputs.discoveryProject }}" \
+            --discovery-project "${DISCOVERY_PROJECT}" \
             --investigation-prefix "eval" \
-            --agent "${{ inputs.agent }}" \
+            --agent "${AGENT}" \
             --foundry-project-endpoint "${FOUNDRY_PROJECT_ENDPOINT}" \
             --llm-judge-model-deployment-name "${MODEL_DEPLOYMENT_NAME}" \
-            --dataset-dir "${GITHUB_WORKSPACE}/${{ inputs.datasetDir }}" \
-            --suites "${{ inputs.suites }}" \
+            --dataset-dir "${dataset_dir}" \
+            --suites "${SUITES}" \
             --max-queries "${MAX_QUERIES}" \
             --concurrency "${CONCURRENCY}" \
             --fail-on "${FAIL_ON}" \
             --output-dir "${GITHUB_WORKSPACE}/artifacts/agent-eval"
+
+      - name: Publish results to job summary
+        if: always()
+        run: |
+          summary="${GITHUB_WORKSPACE}/artifacts/agent-eval/summary.md"
+          if [ -f "${summary}" ]; then
+            cat "${summary}" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "_No evaluation summary was produced._" >> "${GITHUB_STEP_SUMMARY}"
+          fi
 
       - name: Publish evaluation results
         if: always()

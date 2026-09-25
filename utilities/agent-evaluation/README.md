@@ -38,7 +38,12 @@ selected evaluation **suite**, this sequence:
    The agent is never re-invoked by the eval service — only the captured rows
    are scored.
 6. **Report results** — per-criterion pass/fail/errored counts and an overall
-   exit code, with all artifacts written under `--output-dir`.
+   exit code, with all artifacts written under `--output-dir`. A `summary.md`
+   job-summary report is also written; the sample workflow appends it to
+   `$GITHUB_STEP_SUMMARY` so the per-criterion table renders on the run page.
+   The overall exit code honors `--fail-on`: a failing suite (item errors, or a
+   failed criterion under `--fail-on failed`) propagates into the pipeline's
+   process exit code so the workflow goes red.
 
 ```mermaid
 flowchart LR
@@ -46,7 +51,7 @@ flowchart LR
   B -->|real tools run| C[Captured OpenAI<br/>Responses object]
   C --> D[response_to_row<br/>restore tool_call_id,<br/>extract docs + ground truth]
   D --> E[Foundry eval<br/>static JSONL, no re-invoke]
-  E --> F[Per-criterion results<br/>+ summary.json]
+  E --> F[Per-criterion results<br/>+ summary.json / summary.md]
 ```
 
 ### Module map

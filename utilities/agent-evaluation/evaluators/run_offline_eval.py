@@ -249,6 +249,25 @@ def poll_run(oai, eval_id, run, timeout):
     return run, summary, errored, item_errors
 
 
+def compute_exit_code(summary, errored, fail_on):
+    """Decide the fail-on exit code for one eval's results.
+
+    Returns 2 when the ``fail_on`` policy is violated, else 0:
+      - ``errored``: any item errored.
+      - ``failed``: any item errored or any criterion has failures.
+      - ``none``: never fails.
+
+    Kept as a small pure function so the fail-on policy can be unit-tested for
+    each mode and reused by the pipeline when aggregating an overall exit code.
+    """
+    total_failed = sum(s.get("failed", 0) for s in summary.values())
+    if fail_on == "errored" and errored:
+        return 2
+    if fail_on == "failed" and (errored or total_failed):
+        return 2
+    return 0
+
+
 def report(run, summary, errored, item_errors, output, fail_on):
     """Print results, optionally write a JSON report, and return an exit code."""
     print("\n=== Results ===")
@@ -283,12 +302,7 @@ def report(run, summary, errored, item_errors, output, fail_on):
         )
         print(f"\nwrote {output}")
 
-    total_failed = sum(s["failed"] for s in summary.values())
-    if fail_on == "errored" and errored:
-        return 2
-    if fail_on == "failed" and (errored or total_failed):
-        return 2
-    return 0
+    return compute_exit_code(summary, errored, fail_on)
 
 
 # Public aliases for reuse by the evaluation pipeline (stable names).

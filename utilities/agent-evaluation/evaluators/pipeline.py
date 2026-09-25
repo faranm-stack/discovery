@@ -83,6 +83,7 @@ from responses_to_eval_dataset import response_to_row  # noqa: E402
 from run_offline_eval import (  # noqa: E402
     build_testing_criteria,
     clean_row,
+    compute_exit_code,
     execute_eval,
     report,
 )
@@ -100,6 +101,7 @@ class SuiteResult:
     results_path: str | None = None
     queries: int = 0
     captured: int = 0
+    exit_code: int = 0             # fail-on exit code from report() for this suite
 
 
 @dataclass
@@ -130,6 +132,105 @@ class EvaluationResult:
                 for s in self.suites
             },
         }
+
+    def to_markdown(self) -> str:
+        """Render the run as a GitHub-Actions job-summary markdown report.
+
+        The output is designed to be appended to ``$GITHUB_STEP_SUMMARY`` so the
+        per-criterion pass/fail/errored counts and average scores appear directly
+        on the workflow run page, instead of only in downloaded artifacts. Emoji
+        are written as GitHub shortcodes so the source stays ASCII while still
+        rendering as icons.
+        """
+        return render_markdown(self)
+
+
+def aggregate_exit_code(suites: list[SuiteResult], fail_on: str) -> int:
+    """Overall process exit code across suite results, honoring ``--fail-on``.
+
+    A suite contributes a failure when the Foundry run itself did not complete
+    (``failed``/``canceled``) or when its per-suite ``report()`` fail-on policy
+    was violated (carried on ``SuiteResult.exit_code``). ``fail_on == "none"``
+    always returns 0.
+    """
+    if fail_on == "none":
+        return 0
+    code = 0
+    for s in suites:
+        if s.status in ("failed", "canceled"):
+            code = 2
+        if s.exit_code:
+            code = s.exit_code
+    return code
+
+
+# Status -> GitHub emoji shortcode used in the job-summary report.
+_STATUS_ICON = {
+    "completed": ":white_check_mark:",
+    "failed": ":x:",
+    "canceled": ":warning:",
+    "no-captures": ":warning:",
+    "no-evaluators": ":warning:",
+    "no-dataset": ":heavy_minus_sign:",
+}
+
+
+def _pass_rate(passed: int, failed: int) -> str:
+    """Format passed/(passed+failed) as a percentage, or 'n/a' when empty."""
+    total = passed + failed
+    return f"{100.0 * passed / total:.0f}%" if total else "n/a"
+
+
+def render_markdown(result: "EvaluationResult") -> str:
+    """Build a markdown report for one project's evaluation run.
+
+    Produces a header block (agent, investigation, overall result) followed by a
+    per-suite section with a per-criterion table (passed/failed/errored, pass
+    rate, average score) and any captured error messages.
+    """
+    overall = ":white_check_mark: Passed" if result.exit_code == 0 else ":x: Failed"
+    lines: list[str] = [
+        f"## Agent Evaluation: {result.project}",
+        "",
+        "| | |",
+        "| --- | --- |",
+        f"| **Agent** | `{result.agent}` |",
+        f"| **Investigation** | `{result.investigation}` |",
+        f"| **Suites evaluated** | {len(result.suites)} |",
+        f"| **Overall result** | {overall} (exit code {result.exit_code}) |",
+        "",
+    ]
+
+    for suite in result.suites:
+        icon = _STATUS_ICON.get(suite.status, ":grey_question:")
+        lines.append(f"### Suite `{suite.suite}` {icon} {suite.status}")
+        lines.append("")
+        lines.append(
+            f"Queries: {suite.queries} &middot; Captured: {suite.captured} "
+            f"&middot; Errored items: {suite.errored}"
+        )
+        lines.append("")
+
+        if not suite.criteria:
+            lines.append("_No criteria scored for this suite._")
+            lines.append("")
+            continue
+
+        lines.append("| Criterion | Passed | Failed | Errored | Pass rate | Avg score |")
+        lines.append("| --- | ---: | ---: | ---: | ---: | ---: |")
+        for crit, stats in sorted(suite.criteria.items()):
+            passed = stats.get("passed", 0)
+            failed = stats.get("failed", 0)
+            errored = stats.get("errored", 0)
+            avg = stats.get("avg_score")
+            avg_str = f"{avg:.3f}" if isinstance(avg, (int, float)) else "n/a"
+            lines.append(
+                f"| {crit} | {passed} | {failed} | {errored} | "
+                f"{_pass_rate(passed, failed)} | {avg_str} |"
+            )
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
 
 
 class EvaluationPipeline:
@@ -191,16 +292,13 @@ class EvaluationPipeline:
                 agent, investigation, investigation_prefix)
 
             suite_results: list[SuiteResult] = []
-            exit_code = 0
             for suite in selected:
                 print(f"\n=== Suite: {suite} ===")
                 result = await self._run_suite(
                     suite, agent, investigation, max_queries, fail_on, out_dir)
                 suite_results.append(result)
-                if result.status in ("failed", "canceled") or result.errored:
-                    if fail_on != "none":
-                        exit_code = 2
 
+        exit_code = aggregate_exit_code(suite_results, fail_on)
         eval_result = EvaluationResult(
             project=self.discovery_project, agent=agent,
             investigation=investigation, suites=suite_results, exit_code=exit_code,
@@ -209,7 +307,10 @@ class EvaluationPipeline:
             (out_dir / "summary.json").write_text(
                 json.dumps({"generated": int(time.time()), **eval_result.summary()}, indent=2),
                 encoding="utf-8")
+            (out_dir / "summary.md").write_text(
+                eval_result.to_markdown(), encoding="utf-8")
             print(f"\nWrote run summary -> {out_dir / 'summary.json'}")
+            print(f"Wrote job-summary markdown -> {out_dir / 'summary.md'}")
         return eval_result
 
     # -- internals ----------------------------------------------------------
@@ -336,7 +437,7 @@ class EvaluationPipeline:
             self.eval_timeout)
 
         results_path = str(out_dir / f"results-{suite}.json") if out_dir else None
-        report(run, summary, errored, item_errors, results_path, fail_on)
+        result.exit_code = report(run, summary, errored, item_errors, results_path, fail_on)
         result.status = run.status
         result.errored = errored
         result.criteria = summary
