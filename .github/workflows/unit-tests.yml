@@ -7,7 +7,7 @@ name: Unit Tests
 # non-triggered required check as "expected, never reported" which blocks PRs
 # that don't touch the relevant paths. To avoid that, the workflow runs on
 # every PR and a "Detect relevant changes" guard step skips the real work
-# (but still reports success) when no scripts/tests/workflow files changed.
+# (but still reports success) when no scripts/tests/workflow/evaluation files changed.
 
 on:
   pull_request:
@@ -19,6 +19,7 @@ on:
       - ".github/tests/**"
       - ".github/workflows/probe-aka-ms.yml"
       - ".github/workflows/unit-tests.yml"
+      - "utilities/agent-evaluation/**"
   workflow_dispatch:
 
 permissions:
@@ -41,11 +42,11 @@ jobs:
           FILES=$(gh api \
             "repos/${GITHUB_REPOSITORY}/pulls/${{ github.event.pull_request.number }}/files" \
             --paginate --jq '.[].filename')
-          if echo "$FILES" | grep -E '^\.github/(scripts|tests)/|^\.github/workflows/(probe-aka-ms|unit-tests)\.yml$' >/dev/null; then
+          if echo "$FILES" | grep -E '^\.github/(scripts|tests)/|^\.github/workflows/(probe-aka-ms|unit-tests)\.yml$|^utilities/agent-evaluation/' >/dev/null; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
           else
             echo "relevant=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No scripts/tests/unit-tests-workflow paths changed; reporting success without running pytest."
+            echo "::notice::No scripts/tests/unit-tests-workflow/evaluation paths changed; reporting success without running pytest."
           fi
 
       - name: Checkout
