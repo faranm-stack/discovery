@@ -1,0 +1,162 @@
+name: PR 100 - original vs capture-failure fix
+
+on:
+  push:
+    branches:
+      - review/pr-100-exit-validation-20260925
+    paths:
+      - .github/workflows/verify-agent-evaluation-pr100-fix.yml
+      - .github/scripts/report_pr100_fix.py
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    name: Same 15 cases before and after, plus permanent tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      BASE_SHA: 1a16c98f1aadc6a8d20d9ac9956b8c35f68d8c28
+      FIX_SHA: 831f7a0b75302fe4f2e4c4260eb2c24cad3a3e87
+      ORIGINAL_HARNESS_SHA: 82e731152f9e6e726c047b24fa215064176efaad
+      PYTHON_IMAGE: python:3.11-slim-bookworm@sha256:4b4c524dc3dce996864e030c7bd9c6b0e517597189fee48f48e05b499442444b
+    steps:
+      - name: Verify exact source revisions and unchanged test expectations
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/pr100-fix"
+          mkdir -p "$root/git" "$root/baseline" "$root/fixed" "$root/harness" "$root/results/baseline" "$root/results/fixed"
+          chmod 0777 "$root/results" "$root/results/baseline" "$root/results/fixed"
+          git -c core.hooksPath=/dev/null init -q "$root/git"
+          GIT_TERMINAL_PROMPT=0 timeout 120s git -C "$root/git" -c credential.helper= -c core.hooksPath=/dev/null \
+            fetch --no-tags --depth=2 https://github.com/faranm-stack/discovery.git "$FIX_SHA"
+          test "$(git -C "$root/git" rev-parse FETCH_HEAD)" = "$FIX_SHA"
+          test "$(git -C "$root/git" rev-parse "$FIX_SHA^")" = "$BASE_SHA"
+          git -C "$root/git" diff --check "$BASE_SHA" "$FIX_SHA"
+          git -C "$root/git" diff --name-only "$BASE_SHA" "$FIX_SHA" > "$root/results/changed-files.txt"
+          printf '%s\n' \
+            '.github/tests/test_agent_evaluation_exit_codes.py' \
+            '.github/workflows/unit-tests.yml' \
+            'utilities/agent-evaluation/README.md' \
+            'utilities/agent-evaluation/evaluators/pipeline.py' \
+            | diff - "$root/results/changed-files.txt"
+          git -C "$root/git" diff "$BASE_SHA" "$FIX_SHA" > "$root/results/fix.diff"
+          git -C "$root/git" archive "$BASE_SHA" utilities/agent-evaluation | tar -x -C "$root/baseline"
+          git -C "$root/git" archive "$FIX_SHA" utilities/agent-evaluation \
+            .github/tests/test_agent_evaluation_exit_codes.py .github/workflows/unit-tests.yml \
+            | tar -x -C "$root/fixed"
+          for variant in baseline fixed; do
+            sha="$BASE_SHA"
+            if [[ "$variant" == fixed ]]; then sha="$FIX_SHA"; fi
+            git -C "$root/git" ls-tree -r "$sha" -- utilities/agent-evaluation \
+              > "$root/results/$variant/source-blobs.txt"
+            while read -r mode type expected file; do
+              test "$mode" = 100644
+              test "$type" = blob
+              test "$(git hash-object --no-filters "$root/$variant/$file")" = "$expected"
+            done < "$root/results/$variant/source-blobs.txt"
+          done
+          test "$(git -C "$root/git" rev-parse "$FIX_SHA:utilities/agent-evaluation/evaluators/pipeline.py")" = 2df0dfd1f531c1890a9f2855046482fa63c03f7c
+          test "$(sha256sum "$root/fixed/.github/tests/test_agent_evaluation_exit_codes.py" | cut -d' ' -f1)" = 4bfb606707767054e2aebf4304dcf22957e5bba457009ae629b36cf26392a53b
+          curl --fail --silent --show-error --location --connect-timeout 15 --max-time 60 \
+            "https://raw.githubusercontent.com/faranm-stack/discovery/$ORIGINAL_HARNESS_SHA/.github/scripts/pr100_capture_exit_probe.py" \
+            --output "$root/harness/baseline.py"
+          test "$(sha256sum "$root/harness/baseline.py" | cut -d' ' -f1)" = 14b264a6dd004bca0bc3be362bd50761fdcedb9f90c243f416ff7b8ec4a52961
+          sed \
+            -e "s/PR_SHA = \"$BASE_SHA\"/PR_SHA = \"$FIX_SHA\"/" \
+            -e 's/"pipeline.py": "3dcbb4c239b7247f69d63eb10b239d9fa3e9bd48"/"pipeline.py": "2df0dfd1f531c1890a9f2855046482fa63c03f7c"/' \
+            "$root/harness/baseline.py" > "$root/harness/fixed.py"
+          sed \
+            -e "s/PR_SHA = \"$FIX_SHA\"/PR_SHA = \"$BASE_SHA\"/" \
+            -e 's/"pipeline.py": "2df0dfd1f531c1890a9f2855046482fa63c03f7c"/"pipeline.py": "3dcbb4c239b7247f69d63eb10b239d9fa3e9bd48"/' \
+            "$root/harness/fixed.py" | cmp - "$root/harness/baseline.py"
+          curl --fail --silent --show-error --location --connect-timeout 15 --max-time 60 \
+            "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/.github/scripts/report_pr100_fix.py" \
+            --output "$root/harness/report_pr100_fix.py"
+          cp -R "$root/harness" "$root/results/harness"
+          sha256sum "$root/harness/"*.py > "$root/results/harness-sha256.txt"
+          printf 'Base: %s\nFixed: %s\nValidation workflow: %s\nRun: %s/%s/actions/runs/%s\n' \
+            "$BASE_SHA" "$FIX_SHA" "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" \
+            > "$root/results/provenance.txt"
+          date -u '+Started: %Y-%m-%dT%H:%M:%SZ' >> "$root/results/provenance.txt"
+
+      - name: Pull the same pinned Python runtime as the original reproduction
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 120s docker pull "$PYTHON_IMAGE"
+          docker image inspect "$PYTHON_IMAGE" --format '{{.Id}} {{.Os}}/{{.Architecture}} {{json .RepoDigests}}' \
+            >> "$RUNNER_TEMP/pr100-fix/results/provenance.txt"
+
+      - name: Measure actual CLI exits for the same 15 baseline and fixed cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/pr100-fix"
+          for variant in baseline fixed; do
+            container="pr100-$variant-$GITHUB_RUN_ID"
+            marker="$(cat /proc/sys/kernel/random/uuid)"
+            echo "::stop-commands::$marker"
+            set +e
+            timeout --signal=TERM --kill-after=10s 180s docker run --rm --name "$container" \
+              --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+              --pids-limit 64 --memory 256m --cpus 1 --user 10001:10001 \
+              --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777 \
+              --mount "type=bind,src=$root/$variant,dst=/source,readonly" \
+              --mount "type=bind,src=$root/harness,dst=/harness,readonly" \
+              --mount "type=bind,src=$root/results/$variant,dst=/results" \
+              --env HOME=/tmp --entrypoint python "$PYTHON_IMAGE" \
+              -I -B "/harness/$variant.py" --source /source/utilities/agent-evaluation/evaluators --results /results \
+              2>&1 | tee "$root/results/$variant/test.log"
+            codes=("${PIPESTATUS[@]}")
+            set -e
+            echo "::$marker::"
+            printf '%s\n' "${codes[0]}" > "$root/results/$variant/test.exit"
+            if docker container inspect "$container" >/dev/null 2>&1; then docker rm --force "$container"; fi
+            test "${codes[1]}" -eq 0
+          done
+
+      - name: Run the 19 permanent regression tests and syntax check
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/pr100-fix"
+          container="pr100-unit-$GITHUB_RUN_ID"
+          marker="$(cat /proc/sys/kernel/random/uuid)"
+          echo "::stop-commands::$marker"
+          set +e
+          timeout --signal=TERM --kill-after=10s 120s docker run --rm --name "$container" \
+            --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --pids-limit 64 --memory 256m --cpus 1 --user 10001:10001 \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777 \
+            --mount "type=bind,src=$root/fixed,dst=/source,readonly" \
+            --env HOME=/tmp --entrypoint sh "$PYTHON_IMAGE" -ec '
+              python -I -B -c "import ast,pathlib; files=list(pathlib.Path(\"/source\").rglob(\"*.py\")); [ast.parse(p.read_text(),filename=str(p),feature_version=(3,10)) for p in files]; print(\"Syntax checked against Python 3.10 grammar:\",len(files),\"files\")"
+              python -I -B /source/.github/tests/test_agent_evaluation_exit_codes.py -v
+            ' 2>&1 | tee "$root/results/permanent-tests.log"
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          echo "::$marker::"
+          printf '%s\n' "${codes[0]}" > "$root/results/permanent-tests.exit"
+          if docker container inspect "$container" >/dev/null 2>&1; then docker rm --force "$container"; fi
+          test "${codes[1]}" -eq 0
+
+      - name: Assert results and publish the expected-versus-actual table
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/pr100-fix/harness/report_pr100_fix.py" \
+            --results "$RUNNER_TEMP/pr100-fix/results" \
+            --workflow "$RUNNER_TEMP/pr100-fix/fixed/.github/workflows/unit-tests.yml" \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain baseline failures, fixed results, and source identities
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr100-capture-fix-proof
+          path: ${{ runner.temp }}/pr100-fix/results
+          retention-days: 14
+          if-no-files-found: error
