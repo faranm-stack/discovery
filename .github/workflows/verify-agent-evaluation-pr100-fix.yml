@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 10
     env:
       BASE_SHA: 1a16c98f1aadc6a8d20d9ac9956b8c35f68d8c28
-      FIX_SHA: 831f7a0b75302fe4f2e4c4260eb2c24cad3a3e87
+      FIX_SHA: ed887fe9fc79d2c06f87823493c9d75e5d0b1395
       ORIGINAL_HARNESS_SHA: 82e731152f9e6e726c047b24fa215064176efaad
       PYTHON_IMAGE: python:3.11-slim-bookworm@sha256:4b4c524dc3dce996864e030c7bd9c6b0e517597189fee48f48e05b499442444b
     steps:
@@ -29,6 +29,10 @@ jobs:
           root="$RUNNER_TEMP/pr100-fix"
           mkdir -p "$root/git" "$root/baseline" "$root/fixed" "$root/harness" "$root/results/baseline" "$root/results/fixed"
           chmod 0777 "$root/results" "$root/results/baseline" "$root/results/fixed"
+          printf 'Base: %s\nFixed: %s\nValidation workflow: %s\nRun: %s/%s/actions/runs/%s\n' \
+            "$BASE_SHA" "$FIX_SHA" "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" \
+            > "$root/results/provenance.txt"
+          date -u '+Started: %Y-%m-%dT%H:%M:%SZ' >> "$root/results/provenance.txt"
           git -c core.hooksPath=/dev/null init -q "$root/git"
           GIT_TERMINAL_PROMPT=0 timeout 120s git -C "$root/git" -c credential.helper= -c core.hooksPath=/dev/null \
             fetch --no-tags --depth=2 https://github.com/faranm-stack/discovery.git "$FIX_SHA"
@@ -59,7 +63,7 @@ jobs:
             done < "$root/results/$variant/source-blobs.txt"
           done
           test "$(git -C "$root/git" rev-parse "$FIX_SHA:utilities/agent-evaluation/evaluators/pipeline.py")" = 2df0dfd1f531c1890a9f2855046482fa63c03f7c
-          test "$(sha256sum "$root/fixed/.github/tests/test_agent_evaluation_exit_codes.py" | cut -d' ' -f1)" = 4bfb606707767054e2aebf4304dcf22957e5bba457009ae629b36cf26392a53b
+          test "$(sha256sum "$root/fixed/.github/tests/test_agent_evaluation_exit_codes.py" | cut -d' ' -f1)" = 43bf1fd56c830eba319097d94bd74bad412e64e3d52a21684b52c1f988b0e412
           curl --fail --silent --show-error --location --connect-timeout 15 --max-time 60 \
             "https://raw.githubusercontent.com/faranm-stack/discovery/$ORIGINAL_HARNESS_SHA/.github/scripts/pr100_capture_exit_probe.py" \
             --output "$root/harness/baseline.py"
@@ -77,10 +81,6 @@ jobs:
             --output "$root/harness/report_pr100_fix.py"
           cp -R "$root/harness" "$root/results/harness"
           sha256sum "$root/harness/"*.py > "$root/results/harness-sha256.txt"
-          printf 'Base: %s\nFixed: %s\nValidation workflow: %s\nRun: %s/%s/actions/runs/%s\n' \
-            "$BASE_SHA" "$FIX_SHA" "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" \
-            > "$root/results/provenance.txt"
-          date -u '+Started: %Y-%m-%dT%H:%M:%SZ' >> "$root/results/provenance.txt"
 
       - name: Pull the same pinned Python runtime as the original reproduction
         shell: bash

@@ -8,7 +8,7 @@ import subprocess
 
 
 BASE = "1a16c98f1aadc6a8d20d9ac9956b8c35f68d8c28"
-FIX = "831f7a0b75302fe4f2e4c4260eb2c24cad3a3e87"
+FIX = "ed887fe9fc79d2c06f87823493c9d75e5d0b1395"
 FAILURES = {
     "all_capture_failures__errored",
     "all_capture_failures__failed",
