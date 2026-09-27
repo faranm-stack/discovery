@@ -11,7 +11,8 @@ project, agent, bookshelf documents, and dataset queries.
 
 > **Applicability note:** like everything under `utilities/`, this sample targets
 > **Microsoft Discovery services** (the Azure cloud experience). It is not used
-> by the local Discovery app and is not run by any workflow in this repository.
+> by the local Discovery app, and its live evaluation pipeline is not run by any
+> workflow in this repository. Offline regression tests run in the unit-test CI.
 > It is a copyable reference, not operational tooling for this repo.
 
 ---
@@ -44,6 +45,12 @@ selected evaluation **suite**, this sequence:
    The overall exit code honors `--fail-on`: a failing suite (item errors, or a
    failed criterion under `--fail-on failed`) propagates into the pipeline's
    process exit code so the workflow goes red.
+   Failed agent invocations also produce a nonzero exit under `errored` and
+   `failed`, even if other responses pass evaluation or no responses are captured.
+   Suite summaries report `capture_errors` separately from Foundry's `errored`
+   item count. `--fail-on none` still suppresses these policy failures; rows
+   excluded by `--max-queries` or skipped for a missing query are not counted as
+   failed invocations.
 
 ```mermaid
 flowchart LR
@@ -156,3 +163,15 @@ OIDC token on every refresh.
 - **New queries:** edit the `<suite>-evaluators.json` files (or point
   `--dataset-dir` at a new directory of dataset files).
 - **New suite:** drop a `<suite>-evaluators.json` file — no code change needed.
+
+## Offline regression tests
+
+From the repository root, run:
+
+```bash
+python -m unittest discover -s .github/tests -p test_agent_evaluation_exit_codes.py -v
+```
+
+These standard-library tests exercise the pipeline's CLI, capture handling,
+reporting, and exit policies with mocked service boundaries. They need no Azure
+credentials or evaluation dependencies and do not invoke agents or models.

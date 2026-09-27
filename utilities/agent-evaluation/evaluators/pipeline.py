@@ -101,7 +101,8 @@ class SuiteResult:
     results_path: str | None = None
     queries: int = 0
     captured: int = 0
-    exit_code: int = 0             # fail-on exit code from report() for this suite
+    exit_code: int = 0             # capture/report fail-on exit code for this suite
+    capture_errors: int = 0
 
 
 @dataclass
@@ -127,6 +128,7 @@ class EvaluationResult:
                     "criteria": s.criteria,
                     "queries": s.queries,
                     "captured": s.captured,
+                    "capture_errors": s.capture_errors,
                     "results": s.results_path,
                 }
                 for s in self.suites
@@ -149,7 +151,7 @@ def aggregate_exit_code(suites: list[SuiteResult], fail_on: str) -> int:
     """Overall process exit code across suite results, honoring ``--fail-on``.
 
     A suite contributes a failure when the Foundry run itself did not complete
-    (``failed``/``canceled``) or when its per-suite ``report()`` fail-on policy
+    (``failed``/``canceled``) or when its capture/report fail-on policy
     was violated (carried on ``SuiteResult.exit_code``). ``fail_on == "none"``
     always returns 0.
     """
@@ -207,6 +209,7 @@ def render_markdown(result: "EvaluationResult") -> str:
         lines.append("")
         lines.append(
             f"Queries: {suite.queries} &middot; Captured: {suite.captured} "
+            f"&middot; Capture errors: {suite.capture_errors} "
             f"&middot; Errored items: {suite.errored}"
         )
         lines.append("")
@@ -364,10 +367,12 @@ class EvaluationPipeline:
     async def _capture_responses(self, agent, investigation, src_rows, max_queries):
         """Invoke the live agent once per dataset query.
 
-        Returns (eval_rows, captures): eval_rows are Foundry-ready rows, captures
-        are the raw responses kept for audit. Queries are invoked concurrently on
-        the event loop (the client is I/O-bound on network + polling), bounded by
-        an ``asyncio.Semaphore(self.max_workers)``. Output order is kept aligned
+        Returns (eval_rows, captures, capture_errors): eval_rows are Foundry-ready
+        rows, captures are the raw responses kept for audit, and capture_errors
+        counts failed invocations among the selected rows that have a query.
+        Queries are invoked concurrently on the event loop (the client is
+        I/O-bound on network + polling), bounded by an
+        ``asyncio.Semaphore(self.max_workers)``. Output order is kept aligned
         with the source dataset regardless of completion order.
         """
         rows = src_rows if max_queries <= 0 else src_rows[:max_queries]
@@ -385,13 +390,16 @@ class EvaluationPipeline:
 
         eval_rows = []
         captures = []
-        for item in ordered:
+        capture_errors = 0
+        for src_row, item in zip(rows, ordered):
             if item is None:
+                if src_row.get("query"):
+                    capture_errors += 1
                 continue
             capture, eval_row = item
             captures.append(capture)
             eval_rows.append(eval_row)
-        return eval_rows, captures
+        return eval_rows, captures, capture_errors
 
     async def _run_suite(self, suite, agent, investigation, max_queries, fail_on,
                          out_dir) -> SuiteResult:
@@ -406,10 +414,12 @@ class EvaluationPipeline:
             return SuiteResult(suite=suite, status="no-dataset")
         print(f"  dataset: {dataset_path} ({len(src_rows)} queries)")
 
-        eval_rows, captures = await self._capture_responses(
+        eval_rows, captures, capture_errors = await self._capture_responses(
             agent, investigation, src_rows, max_queries)
         result = SuiteResult(suite=suite, status="no-captures",
-                             queries=len(src_rows), captured=len(eval_rows))
+                             queries=len(src_rows), captured=len(eval_rows),
+                             capture_errors=capture_errors,
+                             exit_code=compute_exit_code({}, capture_errors, fail_on))
         if not eval_rows:
             print(f"  WARNING: no responses captured for suite '{suite}' -- skipping eval")
             return result
@@ -437,7 +447,10 @@ class EvaluationPipeline:
             self.eval_timeout)
 
         results_path = str(out_dir / f"results-{suite}.json") if out_dir else None
-        result.exit_code = report(run, summary, errored, item_errors, results_path, fail_on)
+        result.exit_code = max(
+            result.exit_code,
+            report(run, summary, errored, item_errors, results_path, fail_on),
+        )
         result.status = run.status
         result.errored = errored
         result.criteria = summary
