@@ -1,0 +1,493 @@
+name: Verify PR 162 runtime contracts
+
+on:
+  push:
+    branches:
+      - review/pr-162-runtime-contract-20260928
+    paths:
+      - .github/workflows/verify-flow-qc-pr162-runtime.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr162-runtime-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.repository == 'faranm-stack/discovery'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PR_SHA: 839f7f699a4d1b2691894ab271b293d1ef5fa03e
+      TOOL_PATH: agents/flow-cytometry-referee/tools/flow-qc
+      FIXTURE_SHA256: db2206a65e2375fa23e748a25d0d4bb4ed09c72fd00cfe120e8efaa3e317eb10
+    steps:
+      - name: Acquire the pinned public source without checking out or executing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/pr162-runtime"
+          mkdir -p "$root/source" "$root/scripts" "$root/inputs" "$root/results"
+          while read -r expected file; do
+            curl --fail --silent --show-error --location --retry 2 \
+              --connect-timeout 15 --max-time 90 \
+              "https://raw.githubusercontent.com/microsoft/discovery/$PR_SHA/$TOOL_PATH/$file" \
+              --output "$root/source/$file"
+            actual="$(git hash-object "$root/source/$file")"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "::error::Source hash mismatch for $file"
+              exit 1
+            fi
+            printf '%s  %s\n' "$actual" "$file" >> "$root/results/source-blobs.txt"
+          done <<'BLOBS'
+          6f1dfea27bd5c43f1d241d2b18f6d318def9b8ee Dockerfile
+          cc56322ddbf498437a66db11d377cc1ea6a3c124 flow_qc_utils.py
+          e1479c8d378f621cc2b6f428dc6f314fd1380084 tool.yaml
+          BLOBS
+          printf 'PR head: %s\nHarness SHA: %s\nRun: %s\nAttempt: %s\nRunner: %s/%s\n' \
+            "$PR_SHA" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            "$RUNNER_OS" "$RUNNER_ARCH" > "$root/results/provenance.txt"
+          printf '%s\n' \
+            'New public-source rebuild, not the private Azure registry image.' \
+            'Does not establish the cause of the original Azure service error.' \
+            'Azure scheduling, authentication, resource URI resolution and mounts are not exercised.' \
+            'Fixture and output mounts are controlled local mounts on a disposable runner.' \
+            'Runtime: default image user, 2 CPUs, 4 GiB memory, no network, read-only root.' \
+            'Launcher tests use /bin/bash -c; actual Discovery shell options are unknown.' \
+            > "$root/results/limitations.txt"
+
+      - name: Prepare the exact synthetic fixture and sanitized scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/pr162-runtime"
+          base64 --decode > "$root/inputs/pr162-valid-100-events.fcs" <<'FCS'
+          RkNTMy4xICAgICAgICAgMjU2ICAgICA2NDAgICAgIDY0MSAgICAyMjQwICAgICAgIDAgICAgICAgMCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC8kQkVHSU5BTkFMWVNJUy8wLyRCRUdJTkRBVEEvNjQxLyRCRUdJTlNURVhULzAvJEJZVEVPUkQvMSwyLDMsNC8kREFUQVRZUEUvRi8kRU5EQU5BTFlTSVMvMC8kRU5EREFUQS8yMjQwLyRFTkRTVEVYVC8wLyRNT0RFL0wvJE5FWFREQVRBLzAvJFBBUi80LyRUT1QvMTAwLyRQMUIvMzIvJFAxRS8wLDAvJFAxRy8xLjAvJFAxUi8yNjIxNDQvJFAxTi9GU0MtQS8kUDJCLzMyLyRQMkUvMCwwLyRQMkcvMS4wLyRQMlIvMjYyMTQ0LyRQMk4vU1NDLUEvJFAzQi8zMi8kUDNFLzAsMC8kUDNHLzEuMC8kUDNSLzI2MjE0NC8kUDNOL1RpbWUvJFA0Qi8zMi8kUDRFLzAsMC8kUDRHLzEuMC8kUDRSLzI2MjE0NC8kUDROL0ZJVEMtQS8kVElNRVNURVAvMS4wLyRTUElMTE9WRVIvMSxGSVRDLUEsMS8AAHpEAAD6RAAAAAAAAIA/AEB6RABA+kQAAIA/AAAAQACAekQAgPpEAAAAQAAAQEAAwHpEAMD6RAAAQEAAAIBAAAB7RAAA+0QAAIBAAACgQABAe0QAQPtEAACgQAAAwEAAgHtEAID7RAAAwEAAAOBAAMB7RADA+0QAAOBAAAAAQQAAfEQAAPxEAAAAQQAAEEEAQHxEAED8RAAAEEEAACBBAIB8RACA/EQAACBBAAAwQQDAfEQAwPxEAAAwQQAAQEEAAH1EAAD9RAAAQEEAAFBBAEB9RABA/UQAAFBBAABgQQCAfUQAgP1EAABgQQAAcEEAwH1EAMD9RAAAcEEAAIBBAAB+RAAA/kQAAIBBAACIQQBAfkQAQP5EAACIQQAAkEEAgH5EAID+RAAAkEEAAJhBAMB+RADA/kQAAJhBAACgQQAAf0QAAP9EAACgQQAAqEEAQH9EAED/RAAAqEEAALBBAIB/RACA/0QAALBBAAC4QQDAf0QAwP9EAAC4QQAAwEEAAIBEAAAARQAAwEEAAMhBACCARAAgAEUAAMhBAADQQQBAgEQAQABFAADQQQAA2EEAYIBEAGAARQAA2EEAAOBBAICARACAAEUAAOBBAADoQQCggEQAoABFAADoQQAA8EEAwIBEAMAARQAA8EEAAPhBAOCARADgAEUAAPhBAAAAQgAAgUQAAAFFAAAAQgAABEIAIIFEACABRQAABEIAAAhCAECBRABAAUUAAAhCAAAMQgBggUQAYAFFAAAMQgAAEEIAgIFEAIABRQAAEEIAABRCAKCBRACgAUUAABRCAAAYQgDAgUQAwAFFAAAYQgAAHEIA4IFEAOABRQAAHEIAACBCAACCRAAAAkUAACBCAAAkQgAggkQAIAJFAAAkQgAAKEIAQIJEAEACRQAAKEIAACxCAGCCRABgAkUAACxCAAAwQgCAgkQAgAJFAAAwQgAANEIAoIJEAKACRQAANEIAADhCAMCCRADAAkUAADhCAAA8QgDggkQA4AJFAAA8QgAAQEIAAINEAAADRQAAQEIAAERCACCDRAAgA0UAAERCAABIQgBAg0QAQANFAABIQgAATEIAYINEAGADRQAATEIAAFBCAICDRACAA0UAAFBCAABUQgCgg0QAoANFAABUQgAAWEIAwINEAMADRQAAWEIAAFxCAOCDRADgA0UAAFxCAABgQgAAhEQAAARFAABgQgAAZEIAIIREACAERQAAZEIAAGhCAECERABABEUAAGhCAABsQgBghEQAYARFAABsQgAAcEIAgIREAIAERQAAcEIAAHRCAKCERACgBEUAAHRCAAB4QgDAhEQAwARFAAB4QgAAfEIA4IREAOAERQAAfEIAAIBCAACFRAAABUUAAIBCAACCQgAghUQAIAVFAACCQgAAhEIAQIVEAEAFRQAAhEIAAIZCAGCFRABgBUUAAIZCAACIQgCAhUQAgAVFAACIQgAAikIAoIVEAKAFRQAAikIAAIxCAMCFRADABUUAAIxCAACOQgDghUQA4AVFAACOQgAAkEIAAIZEAAAGRQAAkEIAAJJCACCGRAAgBkUAAJJCAACUQgBAhkQAQAZFAACUQgAAlkIAYIZEAGAGRQAAlkIAAJhCAICGRACABkUAAJhCAACaQgCghkQAoAZFAACaQgAAnEIAwIZEAMAGRQAAnEIAAJ5CAOCGRADgBkUAAJ5CAACgQgAAh0QAAAdFAACgQgAAokIAIIdEACAHRQAAokIAAKRCAECHRABAB0UAAKRCAACmQgBgh0QAYAdFAACmQgAAqEIAgIdEAIAHRQAAqEIAAKpCAKCHRACgB0UAAKpCAACsQgDAh0QAwAdFAACsQgAArkIA4IdEAOAHRQAArkIAALBCAACIRAAACEUAALBCAACyQgAgiEQAIAhFAACyQgAAtEIAQIhEAEAIRQAAtEIAALZCAGCIRABgCEUAALZCAAC4QgCAiEQAgAhFAAC4QgAAukIAoIhEAKAIRQAAukIAALxCAMCIRADACEUAALxCAAC+QgDgiEQA4AhFAAC+QgAAwEIAAIlEAAAJRQAAwEIAAMJCACCJRAAgCUUAAMJCAADEQgBAiUQAQAlFAADEQgAAxkIAYIlEAGAJRQAAxkIAAMhC
+          FCS
+          printf '%s  %s\n' "$FIXTURE_SHA256" "$root/inputs/pr162-valid-100-events.fcs" \
+            | sha256sum --check
+
+          cat > "$root/scripts/captured.py" <<'PY'
+          import os
+          import json
+          import csv
+          import math
+          from pathlib import Path
+
+          import numpy as np
+          import pandas as pd
+          from flow_qc_utils import load_fcs, build_qc_report, write_qc_artifacts
+
+          input_dir = Path('/app/input')
+          output_dir = Path('/app/output')
+          output_dir.mkdir(parents=True, exist_ok=True)
+
+          fcs_files = sorted([p for p in input_dir.rglob('*') if p.is_file() and p.suffix.lower() == '.fcs'])
+          if len(fcs_files) != 1:
+              raise RuntimeError(f'Expected exactly 1 FCS file in input mount, found {len(fcs_files)}: {[str(p) for p in fcs_files]}')
+
+          fcs_path = fcs_files[0]
+          loaded = load_fcs(str(fcs_path))
+          report = build_qc_report(loaded)
+          write_qc_artifacts(report, str(output_dir))
+
+          # Extract event matrix and channel names robustly
+          channel_names = None
+          for attr in ['channel_names', 'channels', 'parameter_names']:
+              if hasattr(loaded, attr):
+                  value = getattr(loaded, attr)
+                  if value is not None:
+                      channel_names = list(value)
+                      break
+          if channel_names is None and isinstance(loaded, dict):
+              for key in ['channel_names', 'channels', 'parameter_names']:
+                  if key in loaded and loaded[key] is not None:
+                      channel_names = list(loaded[key])
+                      break
+
+          events = None
+          for attr in ['events', 'data', 'matrix']:
+              if hasattr(loaded, attr):
+                  value = getattr(loaded, attr)
+                  if value is not None:
+                      events = np.asarray(value)
+                      break
+          if events is None and isinstance(loaded, dict):
+              for key in ['events', 'data', 'matrix']:
+                  if key in loaded and loaded[key] is not None:
+                      events = np.asarray(loaded[key])
+                      break
+          if events is None:
+              raise RuntimeError('Unable to locate event matrix on object returned by load_fcs.')
+
+          if events.ndim != 2:
+              raise RuntimeError(f'Expected 2D event matrix, got shape {events.shape}')
+
+          n_events, n_channels = events.shape
+          if channel_names is None or len(channel_names) != n_channels:
+              channel_names = [f'Channel_{i+1}' for i in range(n_channels)]
+
+          summary_rows = []
+          for idx, name in enumerate(channel_names):
+              col = np.asarray(events[:, idx], dtype=float)
+              finite = np.isfinite(col)
+              finite_col = col[finite]
+              row = {
+                  'channel': name,
+                  'count': int(col.size),
+                  'finite_count': int(finite.sum()),
+                  'nonfinite_count': int((~finite).sum()),
+                  'min': float(np.min(finite_col)) if finite_col.size else None,
+                  'max': float(np.max(finite_col)) if finite_col.size else None,
+                  'mean': float(np.mean(finite_col)) if finite_col.size else None,
+                  'median': float(np.median(finite_col)) if finite_col.size else None,
+                  'std': float(np.std(finite_col, ddof=0)) if finite_col.size else None,
+                  'p01': float(np.percentile(finite_col, 1)) if finite_col.size else None,
+                  'p05': float(np.percentile(finite_col, 5)) if finite_col.size else None,
+                  'p25': float(np.percentile(finite_col, 25)) if finite_col.size else None,
+                  'p75': float(np.percentile(finite_col, 75)) if finite_col.size else None,
+                  'p95': float(np.percentile(finite_col, 95)) if finite_col.size else None,
+                  'p99': float(np.percentile(finite_col, 99)) if finite_col.size else None,
+              }
+              summary_rows.append(row)
+
+          summary = {
+              'input_fcs_file': str(fcs_path),
+              'event_count_observed': int(n_events),
+              'channel_names': channel_names,
+              'per_channel_summary_statistics': summary_rows,
+          }
+
+          with open(output_dir / 'observed_summary.json', 'w', encoding='utf-8') as f:
+              json.dump(summary, f, indent=2)
+          pd.DataFrame(summary_rows).to_csv(output_dir / 'per_channel_summary_statistics.csv', index=False)
+          report_json_path = output_dir / 'qc_report.json'
+          try:
+              with open(report_json_path, 'w', encoding='utf-8') as f:
+                  json.dump(report, f, indent=2, default=lambda o: o.tolist() if hasattr(o, 'tolist') else str(o))
+          except Exception as e:
+              with open(output_dir / 'qc_report_serialization_error.txt', 'w', encoding='utf-8') as f:
+                  f.write(str(e))
+          print(json.dumps({
+              'fcs_file': str(fcs_path),
+              'event_count_observed': int(n_events),
+              'channel_names': channel_names,
+              'output_files': sorted([p.name for p in output_dir.iterdir() if p.is_file()])
+          }, indent=2))
+          PY
+
+          cat > "$root/scripts/inspect_api.py" <<'PY'
+          import hashlib
+          import inspect
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          import flow_qc_utils as qc
+
+          module = Path(qc.__file__)
+          assert module == Path("/app/flow_qc_utils.py"), module
+          source = module.read_bytes()
+          blob = hashlib.sha1(f"blob {len(source)}\0".encode("ascii") + source).hexdigest()
+          assert blob == "cc56322ddbf498437a66db11d377cc1ea6a3c124", blob
+          fixture = Path("/app/input/pr162-valid-100-events.fcs")
+          assert hashlib.sha256(fixture.read_bytes()).hexdigest() == (
+              "db2206a65e2375fa23e748a25d0d4bb4ed09c72fd00cfe120e8efaa3e317eb10"
+          )
+          loaded = qc.load_fcs(fixture)
+          assert isinstance(loaded, tuple) and len(loaded) == 2
+          metadata, events = loaded
+          assert events.shape == (100, 4), events.shape
+          report = qc.build_qc_report(metadata, events)
+          mismatches = {}
+          for name, function, arguments in [
+              ("build_qc_report", qc.build_qc_report, (loaded,)),
+              ("write_qc_artifacts", qc.write_qc_artifacts, (report, "/app/output")),
+          ]:
+              try:
+                  function(*arguments)
+              except TypeError as error:
+                  mismatches[name] = str(error)
+              else:
+                  raise AssertionError(f"Captured invalid call unexpectedly accepted: {name}")
+          evidence = {
+              "python": sys.version,
+              "uid": os.getuid(),
+              "gid": os.getgid(),
+              "module": str(module),
+              "module_git_blob": blob,
+              "fixture_sha256": hashlib.sha256(fixture.read_bytes()).hexdigest(),
+              "load_return_types": [type(item).__name__ for item in loaded],
+              "signatures": {
+                  name: str(inspect.signature(getattr(qc, name)))
+                  for name in ("load_fcs", "build_qc_report", "write_qc_artifacts")
+              },
+              "captured_call_type_errors": mismatches,
+          }
+          Path("/app/output/api-evidence.json").write_text(json.dumps(evidence, indent=2))
+          print(json.dumps(evidence, indent=2))
+          PY
+
+          cat > "$root/scripts/corrected.py" <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          from matplotlib.image import imread
+          from flow_qc_utils import load_fcs, build_qc_report, write_qc_artifacts
+
+          input_dir = Path("/app/input")
+          output_dir = Path("/app/output")
+          files = sorted(input_dir.glob("*.fcs"))
+          assert len(files) == 1, files
+          metadata, events = load_fcs(files[0])
+          report = build_qc_report(metadata, events)
+          assert report["event_count"] == 100
+          assert report["channel_count"] == 4
+          assert report["channels"] == ["FSC-A", "SSC-A", "Time", "FITC-A"]
+          fitc = next(row for row in report["channel_summaries"] if row["channel"] == "FITC-A")
+          assert fitc["minimum"] == 1.0
+          assert fitc["median"] == 50.5
+          assert fitc["maximum"] == 100.0
+          assert fitc["finite_fraction"] == 1.0
+          artifacts = write_qc_artifacts(report, events, output_dir)
+          report_path = output_dir / "qc_report.json"
+          report_path.write_text(json.dumps(report, indent=2, allow_nan=False))
+          persisted = json.loads(report_path.read_text())
+          assert persisted["event_count"] == 100
+          csv = pd.read_csv(artifacts["channel_summary_csv"]).set_index("channel")
+          assert csv.loc["FITC-A", "median"] == 50.5
+          assert csv.loc["FITC-A", "finite_fraction"] == 1.0
+          image = imread(artifacts["qc_dashboard"])
+          assert image.ndim == 3 and image.shape[0] > 0 and image.shape[1] > 0
+          complete = {
+              "event_count": report["event_count"],
+              "channels": report["channels"],
+              "FITC-A": fitc,
+              "artifacts": {key: Path(value).name for key, value in artifacts.items()},
+              "png_shape": list(image.shape),
+          }
+          (output_dir / "control-completed.json").write_text(json.dumps(complete, indent=2))
+          print(json.dumps(complete, indent=2))
+          PY
+
+          cat > "$root/scripts/failure_sentinel.py" <<'PY'
+          raise RuntimeError("PR162_EXPECTED_NEGATIVE_CONTROL")
+          PY
+
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"]) / "pr162-runtime"
+          lines = (root / "source/tool.yaml").read_text().splitlines()
+          candidates = [line.strip() for line in lines if line.strip().startswith("command: ")]
+          assert len(candidates) == 1
+          value = candidates[0].removeprefix("command: ")
+          assert value.startswith("'") and value.endswith("'")
+          original = value[1:-1]
+          resolved = original.replace("{{scriptName}}", "qc_run.py").replace(
+              "{{output_directory}}", "/app/output"
+          )
+          assert "{{" not in resolved
+          (root / "results/launcher-original.txt").write_text(original + "\n")
+          (root / "results/launcher-resolved.txt").write_text(resolved + "\n")
+          for script in (root / "scripts").glob("*.py"):
+              compile(script.read_text(), str(script), "exec")
+          PY
+          cp "$root/scripts/"*.py "$root/results/"
+          cp "$root/inputs/pr162-valid-100-events.fcs" "$root/results/"
+
+      - name: Build unchanged production Dockerfile
+        timeout-minutes: 9
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/pr162-runtime"
+          docker build --pull --progress=plain --tag pr162-runtime:reviewed \
+            "$root/source" 2>&1 | tee "$root/results/production-build.log"
+          docker image inspect pr162-runtime:reviewed > "$root/results/image-inspect.json"
+          docker image inspect pr162-runtime:reviewed \
+            --format 'image-id={{.Id}} user={{.Config.User}} workdir={{.Config.WorkingDir}} os={{.Os}} arch={{.Architecture}}' \
+            | tee -a "$root/results/provenance.txt"
+          test "$(docker image inspect pr162-runtime:reviewed --format '{{.Config.User}}')" = appuser
+
+      - name: Execute bounded probes in the production image
+        timeout-minutes: 4
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/pr162-runtime"
+          launcher="$(cat "$root/results/launcher-resolved.txt")"
+          containers=()
+          cleanup() {
+            for container in "${containers[@]}"; do
+              docker rm --force "$container" >/dev/null 2>&1 || true
+            done
+          }
+          trap cleanup EXIT
+          run_probe() {
+            local name="$1"
+            local script="$2"
+            local mode="$3"
+            local container="pr162-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${name}"
+            local output="$root/results/$name"
+            mkdir -p "$output"
+            chmod 777 "$output"
+            containers+=("$container")
+            local limits=(
+              --rm --name "$container" --network none --read-only --cap-drop ALL
+              --security-opt no-new-privileges --pids-limit 256 --memory 4g --cpus 2
+              --label "pr162.review.run=${GITHUB_RUN_ID}"
+              --tmpfs /tmp:rw,nosuid,nodev,size=512m,mode=1777 --env HOME=/tmp
+              --mount "type=bind,src=$root/inputs,dst=/app/input,readonly"
+              --mount "type=bind,src=$root/scripts/$script,dst=/qc_run.py,readonly"
+              --mount "type=bind,src=$output,dst=/app/output"
+            )
+            set +e
+            if [[ "$mode" == launcher ]]; then
+              timeout --signal=TERM --kill-after=10s 45s docker run "${limits[@]}" \
+                pr162-runtime:reviewed /bin/bash -c "$launcher" \
+                > "$root/results/$name.console.txt" 2>&1
+            else
+              timeout --signal=TERM --kill-after=10s 45s docker run "${limits[@]}" \
+                pr162-runtime:reviewed python3 -u /qc_run.py \
+                > "$root/results/$name.console.txt" 2>&1
+            fi
+            local status=$?
+            set -e
+            printf '%s\n' "$status" > "$root/results/$name.exit-code.txt"
+            printf '%s exit code: %s\n' "$name" "$status"
+            docker rm --force "$container" >/dev/null 2>&1 || true
+          }
+          run_probe api inspect_api.py direct
+          run_probe captured-direct captured.py direct
+          run_probe captured-launcher captured.py launcher
+          run_probe sentinel-launcher failure_sentinel.py launcher
+          run_probe corrected-launcher corrected.py launcher
+          cleanup
+          remaining="$(docker ps --all --quiet --filter "label=pr162.review.run=${GITHUB_RUN_ID}")"
+          test -z "$remaining"
+          printf '%s\n' 'No probe containers remain.' > "$root/results/cleanup.txt"
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --pids-limit 128 --memory 1g --cpus 1 \
+            pr162-runtime:reviewed python3 -m pip freeze > "$root/results/dependencies.txt"
+
+      - name: Evaluate outcomes without converting failures into passes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import csv
+          import json
+          import os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"]) / "pr162-runtime/results"
+          def exit_code(name):
+              return int((root / f"{name}.exit-code.txt").read_text().strip())
+          def log(name):
+              return (root / f"{name}.console.txt").read_text()
+          api = json.loads((root / "api/api-evidence.json").read_text()) if (
+              root / "api/api-evidence.json"
+          ).is_file() else None
+          control_path = root / "corrected-launcher/control-completed.json"
+          control = json.loads(control_path.read_text()) if control_path.is_file() else None
+          control_valid = False
+          if control is not None:
+              report = json.loads((root / "corrected-launcher/qc_report.json").read_text())
+              with (root / "corrected-launcher/flow_qc_channel_summary.csv").open() as handle:
+                  rows = list(csv.DictReader(handle))
+              fitc = next(row for row in rows if row["channel"] == "FITC-A")
+              png = (root / "corrected-launcher/flow_qc_dashboard.png").read_bytes()
+              control_valid = (
+                  report["event_count"] == 100 and report["channel_count"] == 4
+                  and report["channels"] == ["FSC-A", "SSC-A", "Time", "FITC-A"]
+                  and float(fitc["minimum"]) == 1.0 and float(fitc["median"]) == 50.5
+                  and float(fitc["maximum"]) == 100.0 and float(fitc["finite_fraction"]) == 1.0
+                  and png.startswith(b"\x89PNG\r\n\x1a\n")
+                  and control["event_count"] == 100
+              )
+          checks = [
+              {
+                  "id": "production-source-and-api",
+                  "passed": exit_code("api") == 0 and api is not None,
+                  "expected": "Default-user production import, pinned helper and fixture hashes, correct tuple return, captured argument errors identified.",
+                  "actual": api,
+              },
+              {
+                  "id": "captured-script-functions",
+                  "passed": exit_code("captured-direct") == 0 and (
+                      root / "captured-direct/observed_summary.json"
+                  ).is_file(),
+                  "expected": "Captured script completes QC successfully.",
+                  "actual": {"exit_code": exit_code("captured-direct"), "console": log("captured-direct")},
+              },
+              {
+                  "id": "captured-error-propagation",
+                  "passed": exit_code("captured-launcher") not in (0, 124, 125, 126, 127, 137)
+                      and "TypeError: build_qc_report() missing 1 required positional argument: 'events'" in log("captured-launcher"),
+                  "expected": "Launcher returns nonzero for the captured invalid helper invocation.",
+                  "actual": {"exit_code": exit_code("captured-launcher"), "console": log("captured-launcher")},
+              },
+              {
+                  "id": "sentinel-error-propagation",
+                  "passed": exit_code("sentinel-launcher") not in (0, 124, 125, 126, 127, 137)
+                      and "PR162_EXPECTED_NEGATIVE_CONTROL" in log("sentinel-launcher"),
+                  "expected": "Launcher returns nonzero for a deliberate Python exception.",
+                  "actual": {"exit_code": exit_code("sentinel-launcher"), "console": log("sentinel-launcher")},
+              },
+              {
+                  "id": "corrected-calls-control",
+                  "passed": exit_code("corrected-launcher") == 0 and control_valid,
+                  "expected": "Correct calls through the original launcher produce 100 events, four channels, FITC-A 1/50.5/100, real JSON/CSV/PNG.",
+                  "actual": {"exit_code": exit_code("corrected-launcher"), "control": control},
+              },
+          ]
+          result = {
+              "pr_sha": os.environ["PR_SHA"],
+              "harness_sha": os.environ["GITHUB_SHA"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "checks": checks,
+              "passed": sum(check["passed"] for check in checks),
+              "failed": sum(not check["passed"] for check in checks),
+              "all_passed": all(check["passed"] for check in checks),
+              "limitations": (root / "limitations.txt").read_text().splitlines(),
+          }
+          (root / "runtime-results.json").write_text(json.dumps(result, indent=2))
+          summary = ["# PR 162 isolated runtime evidence", ""]
+          for check in checks:
+              state = "PASSED" if check["passed"] else "FAILED"
+              summary.append(f"- {state}: {check['id']}")
+          summary.extend(["", *result["limitations"]])
+          text = "\n".join(summary) + "\n"
+          print(text)
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as handle:
+              handle.write(text)
+          PY
+
+      - name: Preserve evidence including failed assertions
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pr162-runtime-contract-${{ github.run_id }}
+          path: ${{ runner.temp }}/pr162-runtime/results
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce the recorded assertions
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          report = Path(os.environ["RUNNER_TEMP"]) / "pr162-runtime/results/runtime-results.json"
+          if not report.is_file():
+              raise SystemExit("No complete result record; validation is incomplete.")
+          result = json.loads(report.read_text())
+          print(f"{result['passed']} passed; {result['failed']} failed")
+          sys.exit(0 if result["all_passed"] else 1)
+          PY
