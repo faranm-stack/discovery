@@ -36,6 +36,7 @@
 # Executable operator utilities. Discovery Toolbox release PRs intentionally
 # use the repository's ordinary one-approval rule instead of requiring a
 # specific CODEOWNER; REL-002 verifies the VSIX pointer and digest.
+/utilities/agent-evaluation/            @microsoft/discovery-samples-maintainer
 /utilities/dataasset-migration/         @microsoft/discovery-samples-maintainer
 /utilities/delete-discovery-deployment/ @microsoft/discovery-samples-maintainer
 /utilities/rbac-roles-assignment/       @microsoft/discovery-samples-maintainer
