@@ -19,6 +19,7 @@ jobs:
       BASE_SHA: a4be6b5073a793150405eef6d7a66fa435c05223
       FIX_SHA: 00a1661cd28e7c2092a2d7bf7a6b880a45e3de54
       MAIN_SHA: 4695ef037c841bee46de52ae01665a253bc93b8a
+      MAINTENANCE_SHA: c4bb06e5586a2d73267522c69449b9d6bc89b715
       PYTHON_IMAGE: python:3.12.14-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e
     steps:
       - name: Verify exact revisions and the one-line correction
@@ -26,7 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/pr100-repo-checks"
-          mkdir -p "$root/git" "$root/baseline" "$root/fixed" "$root/fixtures" "$root/build" "$root/results"
+          mkdir -p "$root/git" "$root/baseline" "$root/fixed" "$root/main-fixed" "$root/fixtures" "$root/build" "$root/results"
           chmod 0777 "$root/results"
           git -c core.hooksPath=/dev/null init -q "$root/git"
           GIT_TERMINAL_PROMPT=0 timeout 120s git -C "$root/git" -c credential.helper= -c core.hooksPath=/dev/null \
@@ -34,20 +35,33 @@ jobs:
           test "$(git -C "$root/git" rev-parse FETCH_HEAD)" = "$FIX_SHA"
           test "$(git -C "$root/git" rev-parse "$FIX_SHA^")" = "$BASE_SHA"
           GIT_TERMINAL_PROMPT=0 timeout 120s git -C "$root/git" -c credential.helper= -c core.hooksPath=/dev/null \
-            fetch --no-tags --depth=1 https://github.com/microsoft/discovery.git "$MAIN_SHA"
-          test "$(git -C "$root/git" rev-parse FETCH_HEAD)" = "$MAIN_SHA"
+            fetch --no-tags --depth=2 https://github.com/faranm-stack/discovery.git "$MAINTENANCE_SHA"
+          test "$(git -C "$root/git" rev-parse FETCH_HEAD)" = "$MAINTENANCE_SHA"
+          test "$(git -C "$root/git" rev-parse "$MAINTENANCE_SHA^")" = "$MAIN_SHA"
           git -C "$root/git" diff --check "$BASE_SHA" "$FIX_SHA"
           git -C "$root/git" diff --name-only "$BASE_SHA" "$FIX_SHA" > "$root/results/changed-files.txt"
           printf '%s\n' '.github/CODEOWNERS' | diff - "$root/results/changed-files.txt"
           test "$(git -C "$root/git" diff --numstat "$BASE_SHA" "$FIX_SHA")" = $'1\t0\t.github/CODEOWNERS'
+          test "$(git -C "$root/git" diff --numstat "$MAIN_SHA" "$MAINTENANCE_SHA")" = $'1\t0\t.github/CODEOWNERS'
+          git -C "$root/git" diff --check "$MAIN_SHA" "$MAINTENANCE_SHA"
+          test "$(git -C "$root/git" rev-parse "$MAINTENANCE_SHA:.github/CODEOWNERS")" = "$(git -C "$root/git" rev-parse "$FIX_SHA:.github/CODEOWNERS")"
+          git -C "$root/git" diff --binary "$MAIN_SHA" "$MAINTENANCE_SHA" > "$root/results/maintenance-fix.diff"
+          git -C "$root/git" read-tree "$BASE_SHA"
+          git -C "$root/git" apply --cached --check "$root/results/maintenance-fix.diff"
+          git -C "$root/git" apply --cached "$root/results/maintenance-fix.diff"
+          integration_tree="$(git -C "$root/git" write-tree)"
+          test "$integration_tree" = "$(git -C "$root/git" rev-parse "$FIX_SHA^{tree}")"
+          printf 'Verified maintenance patch applied to PR head produces tree %s\n' "$integration_tree" \
+            > "$root/results/integration-tree.txt"
           test "$(git -C "$root/git" rev-parse "$BASE_SHA:.github/CODEOWNERS")" = 556ec9b5d94ba8a8fbff6a57f48913de97d3aa13
           git -C "$root/git" diff --exit-code "$MAIN_SHA" "$BASE_SHA" -- \
             .github/scripts .github/policy .github/requirements-ci.txt \
             .github/tests/conftest.py .github/tests/test_validate_pr_pol021.py \
             .github/tests/test_pr_review_workflow_security.py
-          for variant in baseline fixed; do
+          for variant in baseline fixed main-fixed; do
             sha="$BASE_SHA"
             if [[ "$variant" == fixed ]]; then sha="$FIX_SHA"; fi
+            if [[ "$variant" == main-fixed ]]; then sha="$MAINTENANCE_SHA"; fi
             git -C "$root/git" archive "$sha" .github utilities docs/schemas \
               | tar --no-same-owner -x -C "$root/$variant"
             git -C "$root/git" ls-tree -r "$sha" -- .github utilities docs/schemas \
@@ -57,12 +71,14 @@ jobs:
           git -C "$root/git" diff "$BASE_SHA" "$FIX_SHA" > "$root/results/fix.diff"
           git -C "$root/git" diff --name-only "$MAIN_SHA" "$BASE_SHA" > "$root/fixtures/baseline-files.txt"
           git -C "$root/git" diff --name-only "$MAIN_SHA" "$FIX_SHA" > "$root/fixtures/fixed-files.txt"
+          git -C "$root/git" diff --name-only "$MAINTENANCE_SHA" "$FIX_SHA" > "$root/fixtures/after-main-files.txt"
           test "$(wc -l < "$root/fixtures/baseline-files.txt")" -eq 17
           test "$(wc -l < "$root/fixtures/fixed-files.txt")" -eq 18
+          cmp "$root/fixtures/baseline-files.txt" "$root/fixtures/after-main-files.txt"
           cp "$root/fixtures/"*.txt "$root/results/"
           cp "$root/fixed/.github/requirements-ci.txt" "$root/build/requirements-ci.txt"
-          printf 'Upstream base: %s\nPR head: %s\nOwnership fix: %s\nHarness: %s\nRun: %s/%s/actions/runs/%s\n' \
-            "$MAIN_SHA" "$BASE_SHA" "$FIX_SHA" "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" \
+          printf 'Upstream base: %s\nPR head: %s\nTest integration: %s\nMain-based handoff: %s\nHarness: %s\nRun: %s/%s/actions/runs/%s\n' \
+            "$MAIN_SHA" "$BASE_SHA" "$FIX_SHA" "$MAINTENANCE_SHA" "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" \
             > "$root/results/provenance.txt"
           date -u '+Started: %Y-%m-%dT%H:%M:%SZ' >> "$root/results/provenance.txt"
 
@@ -129,6 +145,10 @@ jobs:
           run_case baseline-ownership baseline python -I -B -m pytest -q -p no:cacheprovider \
             .github/tests/test_pr_review_workflow_security.py::test_each_source_utility_directory_has_explicit_ownership \
             --junitxml=/results/baseline-ownership.xml
+          run_case maintenance-tests main-fixed python -I -B -m pytest -q -p no:cacheprovider \
+            .github/tests/test_pr_review_workflow_security.py \
+            .github/tests/test_validate_pr_pol021.py \
+            --junitxml=/results/maintenance-tests.xml
           run_case fixed-tests fixed python -I -B -m pytest -q -p no:cacheprovider \
             .github/tests/test_pr_review_workflow_security.py \
             .github/tests/test_validate_pr_pol021.py \
@@ -142,6 +162,10 @@ jobs:
             PR_AUTHOR_ASSOCIATION=NONE PR_HEAD_REF=add-agent-evaluation-sample \
             python -B .github/scripts/validate_pr.py --repo-root /source \
             --changed-files /fixtures/fixed-files.txt --output /results/fixed-permissions.json
+          run_case after-main-permissions fixed env PR_AUTHOR=akoul-ms PR_AUTHOR_PERMISSION=read \
+            PR_AUTHOR_ASSOCIATION=NONE PR_HEAD_REF=add-agent-evaluation-sample \
+            python -B .github/scripts/validate_pr.py --repo-root /source \
+            --changed-files /fixtures/after-main-files.txt --output /results/after-main-permissions.json
           run_case maintainer-control fixed env PR_AUTHOR=fixture-maintainer PR_AUTHOR_PERMISSION=write \
             PR_AUTHOR_ASSOCIATION=NONE PR_HEAD_REF=fixture/maintainer \
             python -B .github/scripts/validate_pr.py --repo-root /source \
@@ -161,9 +185,11 @@ jobs:
           root = Path(sys.argv[1])
           expected_exits = {
               "baseline-ownership": 1,
+              "maintenance-tests": 0,
               "fixed-tests": 0,
               "baseline-permissions": 1,
               "fixed-permissions": 1,
+              "after-main-permissions": 1,
               "maintainer-control": 0,
           }
           actual_exits = {
@@ -182,6 +208,12 @@ jobs:
           if failure is None or "/utilities/agent-evaluation/" not in "".join(failure.itertext()):
               raise AssertionError("Baseline failure does not identify the missing utility owner")
 
+          maintenance_cases = list(ET.parse(root / "maintenance-tests.xml").getroot().iter("testcase"))
+          if len(maintenance_cases) != 47:
+              raise AssertionError(f"Expected 47 main-branch checks, got {len(maintenance_cases)}")
+          if any(case.find(kind) is not None for case in maintenance_cases for kind in ("failure", "error", "skipped")):
+              raise AssertionError("Main-branch checks include failures, errors, or skipped work")
+
           fixed_cases = list(ET.parse(root / "fixed-tests.xml").getroot().iter("testcase"))
           if len(fixed_cases) != 66:
               raise AssertionError(f"Expected 66 selected tests, got {len(fixed_cases)}")
@@ -192,7 +224,12 @@ jobs:
               raise AssertionError("The 19 unchanged capture regression tests were not all executed")
 
           findings = {}
-          for name, expected_count in (("baseline-permissions", 15), ("fixed-permissions", 16), ("maintainer-control", 0)):
+          for name, expected_count in (
+              ("baseline-permissions", 15),
+              ("fixed-permissions", 16),
+              ("after-main-permissions", 15),
+              ("maintainer-control", 0),
+          ):
               result = json.loads((root / f"{name}.json").read_text())
               if result["failure_count"] != expected_count or result["passed"] != (expected_count == 0):
                   raise AssertionError(f"Unexpected validation result for {name}: {result}")
@@ -203,9 +240,13 @@ jobs:
               findings[name] = [item["file"] for item in result["failures"]]
           if set(findings["fixed-permissions"]) != set(findings["baseline-permissions"]) | {".github/CODEOWNERS"}:
               raise AssertionError("The fixed author control changed more than the added protected file")
+          if findings["after-main-permissions"] != findings["baseline-permissions"]:
+              raise AssertionError("The main-first route unexpectedly altered contributor denials")
 
           proof = {
               "ownership_fix_verified": True,
+              "main_based_handoff_verified": True,
+              "maintenance_tests_passed": len(maintenance_cases),
               "fixed_tests_passed": len(fixed_cases),
               "capture_tests_passed": len(capture_cases),
               "exits": actual_exits,
@@ -219,8 +260,11 @@ jobs:
 
           - The original ownership assertion fails on the pinned PR head.
           - The same assertion passes with the one-line CODEOWNERS correction.
+          - The handoff commit is based on upstream main, with exactly one ownership line added; 47 selected main-branch tests pass.
+          - Applying that maintenance patch to PR #100 produces exactly the tested integration tree.
           - All 66 selected tests pass, including 19 unchanged capture regression tests and the contributor-scope denial controls.
           - The actual author-metadata fixture still fails POL-021: 15 original findings, or 16 if CODEOWNERS is added on the contributor branch.
+          - Landing the ownership entry on main first and refreshing #100 preserves the original 17-file scope and its 15 permission findings.
           - A **synthetic** maintainer-permission control passes the validator. No real account permissions were changed or verified by that control.
           - **This commit fixes ownership only. It does not clear the live contributor-permissions gate, authorize a merge, or resolve human reviews.**
           - Source execution used network-disabled, non-root containers with no Azure credentials. Dependency preparation used the pinned existing CI requirements.
