@@ -1,0 +1,240 @@
+name: PR 100 - ownership correction and permission controls
+
+on:
+  push:
+    branches:
+      - review/pr-100-repo-checks-20261002
+    paths:
+      - .github/workflows/verify-pr100-repo-checks.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify ownership fix without weakening contributor controls
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      BASE_SHA: a4be6b5073a793150405eef6d7a66fa435c05223
+      FIX_SHA: 00a1661cd28e7c2092a2d7bf7a6b880a45e3de54
+      MAIN_SHA: 4695ef037c841bee46de52ae01665a253bc93b8a
+      PYTHON_IMAGE: python:3.12.14-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e
+    steps:
+      - name: Verify exact revisions and the one-line correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/pr100-repo-checks"
+          mkdir -p "$root/git" "$root/baseline" "$root/fixed" "$root/fixtures" "$root/build" "$root/results"
+          chmod 0777 "$root/results"
+          git -c core.hooksPath=/dev/null init -q "$root/git"
+          GIT_TERMINAL_PROMPT=0 timeout 120s git -C "$root/git" -c credential.helper= -c core.hooksPath=/dev/null \
+            fetch --no-tags --depth=2 https://github.com/faranm-stack/discovery.git "$FIX_SHA"
+          test "$(git -C "$root/git" rev-parse FETCH_HEAD)" = "$FIX_SHA"
+          test "$(git -C "$root/git" rev-parse "$FIX_SHA^")" = "$BASE_SHA"
+          GIT_TERMINAL_PROMPT=0 timeout 120s git -C "$root/git" -c credential.helper= -c core.hooksPath=/dev/null \
+            fetch --no-tags --depth=1 https://github.com/microsoft/discovery.git "$MAIN_SHA"
+          test "$(git -C "$root/git" rev-parse FETCH_HEAD)" = "$MAIN_SHA"
+          git -C "$root/git" diff --check "$BASE_SHA" "$FIX_SHA"
+          git -C "$root/git" diff --name-only "$BASE_SHA" "$FIX_SHA" > "$root/results/changed-files.txt"
+          printf '%s\n' '.github/CODEOWNERS' | diff - "$root/results/changed-files.txt"
+          test "$(git -C "$root/git" diff --numstat "$BASE_SHA" "$FIX_SHA")" = $'1\t0\t.github/CODEOWNERS'
+          test "$(git -C "$root/git" rev-parse "$BASE_SHA:.github/CODEOWNERS")" = 556ec9b5d94ba8a8fbff6a57f48913de97d3aa13
+          git -C "$root/git" diff --exit-code "$MAIN_SHA" "$BASE_SHA" -- \
+            .github/scripts .github/policy .github/requirements-ci.txt \
+            .github/tests/conftest.py .github/tests/test_validate_pr_pol021.py \
+            .github/tests/test_pr_review_workflow_security.py
+          for variant in baseline fixed; do
+            sha="$BASE_SHA"
+            if [[ "$variant" == fixed ]]; then sha="$FIX_SHA"; fi
+            git -C "$root/git" archive "$sha" .github utilities docs/schemas \
+              | tar --no-same-owner -x -C "$root/$variant"
+            git -C "$root/git" ls-tree -r "$sha" -- .github utilities docs/schemas \
+              > "$root/results/$variant-source-blobs.txt"
+          done
+          test "$(sha256sum "$root/fixed/.github/CODEOWNERS" | cut -d' ' -f1)" = b9173ea2f8cd9821adb32781537c1ec2866d766407ebea072914436a4aeaf34f
+          git -C "$root/git" diff "$BASE_SHA" "$FIX_SHA" > "$root/results/fix.diff"
+          git -C "$root/git" diff --name-only "$MAIN_SHA" "$BASE_SHA" > "$root/fixtures/baseline-files.txt"
+          git -C "$root/git" diff --name-only "$MAIN_SHA" "$FIX_SHA" > "$root/fixtures/fixed-files.txt"
+          test "$(wc -l < "$root/fixtures/baseline-files.txt")" -eq 17
+          test "$(wc -l < "$root/fixtures/fixed-files.txt")" -eq 18
+          cp "$root/fixtures/"*.txt "$root/results/"
+          cp "$root/fixed/.github/requirements-ci.txt" "$root/build/requirements-ci.txt"
+          printf 'Upstream base: %s\nPR head: %s\nOwnership fix: %s\nHarness: %s\nRun: %s/%s/actions/runs/%s\n' \
+            "$MAIN_SHA" "$BASE_SHA" "$FIX_SHA" "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" \
+            > "$root/results/provenance.txt"
+          date -u '+Started: %Y-%m-%dT%H:%M:%SZ' >> "$root/results/provenance.txt"
+
+      - name: Prepare a pinned Python runtime with the existing CI dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/pr100-repo-checks"
+          timeout 120s docker pull "$PYTHON_IMAGE"
+          docker image inspect "$PYTHON_IMAGE" --format '{{.Id}} {{.Os}}/{{.Architecture}} {{json .RepoDigests}}' \
+            >> "$root/results/provenance.txt"
+          set +e
+          timeout 20s docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --user 10001:10001 \
+            --entrypoint python "$PYTHON_IMAGE" -I -m pytest --version \
+            > "$root/results/dependency-probe.log" 2>&1
+          probe_exit=$?
+          set -e
+          if [[ "$probe_exit" -ne 1 ]] || ! grep -Fq 'No module named pytest' "$root/results/dependency-probe.log"; then
+            cat "$root/results/dependency-probe.log"
+            echo "::error::Unexpected prerequisite probe; stopping instead of changing the environment silently."
+            exit 1
+          fi
+          printf 'FROM %s\nCOPY requirements-ci.txt /tmp/requirements-ci.txt\nRUN python -m pip install --only-binary=:all: --no-cache-dir -r /tmp/requirements-ci.txt\n' \
+            "$PYTHON_IMAGE" > "$root/build/Dockerfile"
+          timeout 180s docker build --tag "pr100-checks:$GITHUB_RUN_ID" "$root/build"
+          docker image inspect "pr100-checks:$GITHUB_RUN_ID" --format '{{.Id}} {{.Os}}/{{.Architecture}}' \
+            >> "$root/results/provenance.txt"
+          docker run --rm --network none --entrypoint python "pr100-checks:$GITHUB_RUN_ID" --version \
+            >> "$root/results/provenance.txt"
+          docker run --rm --network none --entrypoint python "pr100-checks:$GITHUB_RUN_ID" -m pip freeze \
+            > "$root/results/dependencies.txt"
+
+      - name: Execute baseline, fixed tests, and unchanged permission controls offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/pr100-repo-checks"
+          run_case() {
+            local id="$1" variant="$2"
+            shift 2
+            local container="pr100-$id-$GITHUB_RUN_ID"
+            local marker
+            marker="$(cat /proc/sys/kernel/random/uuid)"
+            echo "::stop-commands::$marker"
+            set +e
+            timeout --signal=TERM --kill-after=10s 90s docker run --rm --name "$container" \
+              --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+              --pids-limit 96 --memory 512m --cpus 1 --user 10001:10001 \
+              --tmpfs /tmp:rw,noexec,nosuid,nodev,size=128m,mode=1777 \
+              --mount "type=bind,src=$root/$variant,dst=/source,readonly" \
+              --mount "type=bind,src=$root/fixtures,dst=/fixtures,readonly" \
+              --mount "type=bind,src=$root/results,dst=/results" \
+              --workdir /source --env HOME=/tmp --env CI=true --env PYTHONDONTWRITEBYTECODE=1 \
+              --entrypoint "$1" "pr100-checks:$GITHUB_RUN_ID" "${@:2}" \
+              2>&1 | tee "$root/results/$id.log"
+            local codes=("${PIPESTATUS[@]}")
+            set -e
+            echo "::$marker::"
+            printf '%s\n' "${codes[0]}" > "$root/results/$id.exit"
+            if docker container inspect "$container" >/dev/null 2>&1; then docker rm --force "$container"; fi
+            test "${codes[1]}" -eq 0
+          }
+          run_case baseline-ownership baseline python -I -B -m pytest -q -p no:cacheprovider \
+            .github/tests/test_pr_review_workflow_security.py::test_each_source_utility_directory_has_explicit_ownership \
+            --junitxml=/results/baseline-ownership.xml
+          run_case fixed-tests fixed python -I -B -m pytest -q -p no:cacheprovider \
+            .github/tests/test_pr_review_workflow_security.py \
+            .github/tests/test_validate_pr_pol021.py \
+            .github/tests/test_agent_evaluation_exit_codes.py \
+            --junitxml=/results/fixed-tests.xml
+          run_case baseline-permissions baseline env PR_AUTHOR=akoul-ms PR_AUTHOR_PERMISSION=read \
+            PR_AUTHOR_ASSOCIATION=NONE PR_HEAD_REF=add-agent-evaluation-sample \
+            python -B .github/scripts/validate_pr.py --repo-root /source \
+            --changed-files /fixtures/baseline-files.txt --output /results/baseline-permissions.json
+          run_case fixed-permissions fixed env PR_AUTHOR=akoul-ms PR_AUTHOR_PERMISSION=read \
+            PR_AUTHOR_ASSOCIATION=NONE PR_HEAD_REF=add-agent-evaluation-sample \
+            python -B .github/scripts/validate_pr.py --repo-root /source \
+            --changed-files /fixtures/fixed-files.txt --output /results/fixed-permissions.json
+          run_case maintainer-control fixed env PR_AUTHOR=fixture-maintainer PR_AUTHOR_PERMISSION=write \
+            PR_AUTHOR_ASSOCIATION=NONE PR_HEAD_REF=fixture/maintainer \
+            python -B .github/scripts/validate_pr.py --repo-root /source \
+            --changed-files /fixtures/fixed-files.txt --output /results/maintainer-control.json
+
+      - name: Assert measured outcomes and disclose the remaining policy gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/pr100-repo-checks"
+          python3 - "$root/results" <<'PY'
+          import json
+          import sys
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          expected_exits = {
+              "baseline-ownership": 1,
+              "fixed-tests": 0,
+              "baseline-permissions": 1,
+              "fixed-permissions": 1,
+              "maintainer-control": 0,
+          }
+          actual_exits = {
+              case: int((root / f"{case}.exit").read_text())
+              for case in expected_exits
+          }
+          if actual_exits != expected_exits:
+              raise AssertionError(f"Unexpected command exits: {actual_exits}")
+
+          baseline_cases = list(ET.parse(root / "baseline-ownership.xml").getroot().iter("testcase"))
+          if len(baseline_cases) != 1 or baseline_cases[0].find("failure") is None:
+              raise AssertionError("Baseline did not reproduce the ownership assertion")
+          if baseline_cases[0].get("name") != "test_each_source_utility_directory_has_explicit_ownership":
+              raise AssertionError("The expected original ownership test was not executed")
+          failure = baseline_cases[0].find("failure")
+          if failure is None or "/utilities/agent-evaluation/" not in "".join(failure.itertext()):
+              raise AssertionError("Baseline failure does not identify the missing utility owner")
+
+          fixed_cases = list(ET.parse(root / "fixed-tests.xml").getroot().iter("testcase"))
+          if len(fixed_cases) != 66:
+              raise AssertionError(f"Expected 66 selected tests, got {len(fixed_cases)}")
+          if any(case.find(kind) is not None for case in fixed_cases for kind in ("failure", "error", "skipped")):
+              raise AssertionError("Fixed tests include failures, errors, or skipped work")
+          capture_cases = [case for case in fixed_cases if "test_agent_evaluation_exit_codes" in case.get("classname", "")]
+          if len(capture_cases) != 19:
+              raise AssertionError("The 19 unchanged capture regression tests were not all executed")
+
+          findings = {}
+          for name, expected_count in (("baseline-permissions", 15), ("fixed-permissions", 16), ("maintainer-control", 0)):
+              result = json.loads((root / f"{name}.json").read_text())
+              if result["failure_count"] != expected_count or result["passed"] != (expected_count == 0):
+                  raise AssertionError(f"Unexpected validation result for {name}: {result}")
+              if len(result["failures"]) != expected_count:
+                  raise AssertionError(f"Incorrect finding count for {name}")
+              if any(item["rule_id"] != "POL-021" for item in result["failures"]):
+                  raise AssertionError(f"Unexpected non-permission finding in {name}")
+              findings[name] = [item["file"] for item in result["failures"]]
+          if set(findings["fixed-permissions"]) != set(findings["baseline-permissions"]) | {".github/CODEOWNERS"}:
+              raise AssertionError("The fixed author control changed more than the added protected file")
+
+          proof = {
+              "ownership_fix_verified": True,
+              "fixed_tests_passed": len(fixed_cases),
+              "capture_tests_passed": len(capture_cases),
+              "exits": actual_exits,
+              "permission_findings": findings,
+              "permission_policy_changed": False,
+              "live_pr_permission_gate_cleared": False,
+              "maintainer_control_is_synthetic": True,
+          }
+          (root / "verification.json").write_text(json.dumps(proof, indent=2) + "\n")
+          summary = """## PR #100: ownership correction verified
+
+          - The original ownership assertion fails on the pinned PR head.
+          - The same assertion passes with the one-line CODEOWNERS correction.
+          - All 66 selected tests pass, including 19 unchanged capture regression tests and the contributor-scope denial controls.
+          - The actual author-metadata fixture still fails POL-021: 15 original findings, or 16 if CODEOWNERS is added on the contributor branch.
+          - A **synthetic** maintainer-permission control passes the validator. No real account permissions were changed or verified by that control.
+          - **This commit fixes ownership only. It does not clear the live contributor-permissions gate, authorize a merge, or resolve human reviews.**
+          - Source execution used network-disabled, non-root containers with no Azure credentials. Dependency preparation used the pinned existing CI requirements.
+          """
+          (root / "verification-summary.md").write_text(summary)
+          print(summary)
+          PY
+          cat "$root/results/verification-summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain success and failure evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pr100-repository-checks-proof
+          path: ${{ runner.temp }}/pr100-repo-checks/results/
+          retention-days: 14
+          if-no-files-found: error
