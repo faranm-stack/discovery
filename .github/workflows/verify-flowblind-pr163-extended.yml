@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - review/pr-163-validation
+      - review/pr-163-validation-930555e
     paths:
       - .github/workflows/verify-flowblind-pr163-extended.yml
       - .github/scripts/pr163-*
@@ -18,9 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      PR_SHA: 7bc7e6af8b0d29cdf2453025c6dcaed9b435c240
+      PR_SHA: 930555ef0ac22190961d45caff05d0ced7b61aa0
       PACKAGE_PATH: agents/flowblind-research-teammate-v2
-      PACKAGE_TREE: c3e67731f8d9ed1316d2fb33a427568111cf6c4c
+      PACKAGE_TREE: eceb2e54f98df39c43b512ca2a23f4ae9d990c70
     steps:
       - name: Verify original package and capture the review harness
         shell: bash
@@ -65,9 +65,9 @@ jobs:
           set -euo pipefail
           results="$RUNNER_TEMP/pr163-results"
           for role in prepare run; do
-            if [[ "$role" == prepare ]]; then tool=flowblind-prepare-study-v2; else tool=flowblind-run-and-verify-study-v2; fi
+            if [[ "$role" == prepare ]]; then tool=flowblind-prepare; else tool=flowblind-run-verify; fi
             set +e
-            timeout --signal=TERM --kill-after=30s 300s docker build --pull --progress=plain \
+            timeout --signal=TERM --kill-after=30s 300s docker build --pull --platform linux/amd64 --progress=plain \
               --tag "pr163-$role:$GITHUB_RUN_ID" "$RUNNER_TEMP/pr163-source/tools/$tool" \
               2>&1 | tee "$results/build-$role.log"
             codes=("${PIPESTATUS[@]}")

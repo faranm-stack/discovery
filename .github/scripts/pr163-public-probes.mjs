@@ -184,7 +184,7 @@ async function prepareCase(id, csv, metadata, goal = regionalGoal, context = hum
   await writeFile(join(inputRoot, filename), csv);
   await json(join(root, 'request.json'), { researchGoal: goal, ...context, metadata });
   const env = environment('prepare-study', goal, metadata, context, inputRoot, outputRoot);
-  const process = await facade('flowblind-prepare-study-v2.mjs', [], env, join(root, 'prepare'));
+  const process = await facade('flowblind-prepare-study-v2.js', [], env, join(root, 'prepare'));
   const response = JSON.parse(process.stdout);
   await json(join(root, 'prepare-response.json'), response);
   return { id, root, inputRoot, outputRoot, csv, goal, context, metadata, process, response };
@@ -202,7 +202,7 @@ async function completeCase(id, csv, metadata, goal = regionalGoal, context = hu
   const directory = `flowblind-preparation-${prepared.response.preparedStudy.preparationArtifact.sha256}`;
   await cp(join(prepared.outputRoot, directory), join(inputRoot, directory), { recursive: true });
   const env = environment('run-and-verify-study', goal, {}, context, inputRoot, outputRoot);
-  const process = await facade('flowblind-run-and-verify-study-v2.mjs', [], env, join(prepared.root, 'run'));
+  const process = await facade('flowblind-run-and-verify-study-v2.js', [], env, join(prepared.root, 'run'));
   const response = JSON.parse(process.stdout);
   await json(join(prepared.root, 'run-response.json'), response);
   assert.equal(process.status, 0, JSON.stringify(response));
@@ -290,39 +290,81 @@ await check('PUB-008', 'Out-of-range requested time remains an explicit unavaila
     return metrics;
   });
 
-for (const [field, length] of [['license', 257], ['quantity', 257], ['vectorMeaning', 2049], ['provenance', 2049]]) {
-  await check(`META-${field}`, `Advertised vector metadata bounds apply to ${field}`,
-    `${length} ASCII characters, below the published 4096 limit, must prepare successfully`, async () => {
-      const result = await prepareCase(`vector-long-${field}`, vectorCsv(), { ...vectorMetadata, [field]: 'x'.repeat(length) }, vectorGoal);
+// Contract at 930555e (README "Scientific parameters"): quantity/license <= 256 and
+// vectorMeaning/provenance <= 2048 characters; provenance/license (and vector timeUnit) required.
+async function refusal(result, field) {
+  const text = `${JSON.stringify(result.response)}\n${result.process.stderr ?? ''}`.toLowerCase();
+  const snake = field.replace(/[A-Z]/g, letter => `_${letter}`).toLowerCase();
+  return {
+    field,
+    exitCode: result.process.status,
+    status: result.response?.status,
+    containsResults: result.response?.containsResults,
+    promotedFiles: (await filesUnder(result.outputRoot)).length,
+    namesField: text.includes(field.toLowerCase()) || text.includes(snake),
+    response: result.response,
+  };
+}
+
+function assertRefused(observed) {
+  assert.notEqual(observed.exitCode, 0, JSON.stringify(observed));
+  assert.notEqual(observed.status, 'prepared-awaiting-confirmation', JSON.stringify(observed));
+  assert.equal(observed.containsResults, false, JSON.stringify(observed));
+  assert.equal(observed.promotedFiles, 0, JSON.stringify(observed));
+}
+
+for (const [field, limit] of [['license', 256], ['quantity', 256], ['vectorMeaning', 2048], ['provenance', 2048]]) {
+  await check(`META-${field}`, `Documented vector metadata bound applies to ${field}`,
+    `${limit} ASCII characters must prepare successfully; ${limit + 1} must be refused result-free with no promoted files`, async () => {
+      const atLimit = await prepareCase(`vector-limit-${field}`, vectorCsv(), { ...vectorMetadata, [field]: 'x'.repeat(limit) }, vectorGoal);
+      const overLimit = await prepareCase(`vector-long-${field}`, vectorCsv(), { ...vectorMetadata, [field]: 'x'.repeat(limit + 1) }, vectorGoal);
       schemaCases.push({
-        id: `vector-long-${field}-input-contract`,
-        path: join(result.root, 'request.json'),
+        id: `vector-limit-${field}-input-contract`,
+        path: join(atLimit.root, 'request.json'),
         schemaId: `${schemaBase}flowblind-catalog-research-v2-prepare-input.schema.json`,
         expectedValid: true,
+      }, {
+        id: `vector-long-${field}-input-contract`,
+        path: join(overLimit.root, 'request.json'),
+        schemaId: `${schemaBase}flowblind-catalog-research-v2-prepare-input.schema.json`,
+        expectedValid: false,
       });
       await json(join(resultsRoot, 'schema-cases.json'), schemaCases);
-      assert.equal(result.process.status, 0, JSON.stringify(result.response));
-      assert.equal(result.response.status, 'prepared-awaiting-confirmation');
-      return { status: result.response.status, characters: length };
+      const over = await refusal(overLimit, field);
+      assert.equal(atLimit.process.status, 0, JSON.stringify(atLimit.response));
+      assert.equal(atLimit.response.status, 'prepared-awaiting-confirmation');
+      assertRefused(over);
+      return { atLimit: { characters: limit, status: atLimit.response.status }, overLimit: { characters: limit + 1, ...over } };
     });
 }
 
 for (const family of ['regional', 'vector']) {
-  await check(`DOC-${family}`, `The README's documented optional declarations are actually optional for ${family}`,
-    'Using only the declarations listed as required in the README must produce a preparation', async () => {
-      const metadata = { ...(family === 'regional' ? regionalMetadata : vectorMetadata) };
-      delete metadata.provenance;
-      delete metadata.license;
-      if (family === 'vector') delete metadata.timeUnit;
-      const result = await prepareCase(
-        `readme-${family}`,
-        family === 'regional' ? regionalCsv((x, y) => [x + y, x + y]) : vectorCsv(),
-        metadata,
-        family === 'regional' ? regionalGoal : vectorGoal,
-      );
-      assert.equal(result.process.status, 0, JSON.stringify(result.response));
-      assert.equal(result.response.status, 'prepared-awaiting-confirmation');
-      return result.response;
+  const required = family === 'regional' ? ['provenance', 'license'] : ['timeUnit', 'provenance', 'license'];
+  await check(`DOC-${family}`, `The README's required declarations (${required.join(', ')}) are enforced for ${family}`,
+    'Omitting each required declaration is refused result-free, with no promoted files, and the refusal names the missing field', async () => {
+      const observed = [];
+      for (const field of required) {
+        const metadata = { ...(family === 'regional' ? regionalMetadata : vectorMetadata) };
+        delete metadata[field];
+        const result = await prepareCase(
+          `readme-${family}-missing-${field}`,
+          family === 'regional' ? regionalCsv((x, y) => [x + y, x + y]) : vectorCsv(),
+          metadata,
+          family === 'regional' ? regionalGoal : vectorGoal,
+        );
+        schemaCases.push({
+          id: `readme-${family}-missing-${field}-input-contract`,
+          path: join(result.root, 'request.json'),
+          schemaId: `${schemaBase}flowblind-catalog-research-v2-prepare-input.schema.json`,
+          expectedValid: false,
+        });
+        await json(join(resultsRoot, 'schema-cases.json'), schemaCases);
+        observed.push(await refusal(result, field));
+      }
+      await json(join(resultsRoot, `readme-${family}-observed.json`), observed);
+      for (const item of observed) assertRefused(item);
+      for (const item of observed) assert.ok(item.namesField, `Refusal does not name the missing field: ${JSON.stringify(item)}`);
+      return observed;
     });
 }
 
@@ -354,9 +396,9 @@ await check('NEG-private-default-off', 'Public facade does not activate the bund
 await check('NEG-confirmation-authority', 'Module run cannot execute without package-issued run authority',
   'No result files; authority-unavailable / host-confirmation-authority-unavailable', async () => {
     assert.ok(control, 'Regional control case is required');
-    const verifier = await import(`${runtimeRoot}/flowblind-research-teammate-verification-v2.mjs`);
+    const verifier = await import(`${runtimeRoot}/flowblind-research-teammate-verification-v2.js`);
     const verified = await verifier.verifyFlowBlindCatalogResearchV2Package({ toolRole: 'prepare-study' });
-    const runtime = await import(`${runtimeRoot}/generated/flowblind-catalog-research-runtime-v2.mjs?sha256=${verified.lock.publicRuntime.sha256}`);
+    const runtime = await import(`${runtimeRoot}/generated/flowblind-catalog-research-runtime-v2.js?sha256=${verified.lock.publicRuntime.sha256}`);
     const outputRoot = join(resultsRoot, 'without-confirmation');
     await mkdir(outputRoot);
     const response = await runtime.callCatalogResearchV2Action('run-and-verify-study', {
@@ -372,7 +414,7 @@ await check('NEG-confirmation-authority', 'Module run cannot execute without pac
 await check('REC-001', 'Committed report is readable from a fresh process',
   'Cold resource bytes equal the HTML identity in the completed report', async () => {
     assert.ok(control, 'Regional control case is required');
-    const result = await facade('flowblind-report-resource-v2.mjs', [control.run.publication.resourceUri], control.runEnv, join(control.root, 'cold-resource'));
+    const result = await facade('flowblind-report-resource-v2.js', [control.run.publication.resourceUri], control.runEnv, join(control.root, 'cold-resource'));
     assert.equal(result.status, 0, result.stderr);
     const expected = control.run.result.verifiedStudy.artifacts.html;
     assert.equal(createHash('sha256').update(result.stdout).digest('hex'), expected.sha256);
@@ -386,7 +428,7 @@ await check('REC-002', 'Re-running against a committed report does not rewrite i
     assert.ok(control, 'Regional control case is required');
     const before = {};
     for (const path of await filesUnder(control.runOutput)) before[path] = createHash('sha256').update(await readFile(path)).digest('hex');
-    const result = await facade('flowblind-run-and-verify-study-v2.mjs', [], control.runEnv, join(control.root, 'replay'));
+    const result = await facade('flowblind-run-and-verify-study-v2.js', [], control.runEnv, join(control.root, 'replay'));
     assert.equal(result.status, 0, result.stdout);
     const response = JSON.parse(result.stdout);
     assert.equal(response.publication.resourceUri, control.run.publication.resourceUri);
@@ -403,7 +445,7 @@ await check('REC-003', 'Modified report bytes cannot pass cold verification',
     await cp(control.runOutput, outputRoot, { recursive: true });
     const html = join(outputRoot, control.run.result.verifiedStudy.artifacts.html.reference);
     await writeFile(html, `${await readFile(html, 'utf8')}\nTAMPERED\n`);
-    const result = await facade('flowblind-report-resource-v2.mjs', [control.run.publication.resourceUri], {
+    const result = await facade('flowblind-report-resource-v2.js', [control.run.publication.resourceUri], {
       ...control.runEnv, FLOWBLIND_OUTPUT_ROOT: outputRoot,
     }, join(control.root, 'tampered-resource'));
     assert.notEqual(result.status, 0);
@@ -412,7 +454,7 @@ await check('REC-003', 'Modified report bytes cannot pass cold verification',
 
 await json(join(resultsRoot, 'schema-cases.json'), schemaCases);
 await json(join(resultsRoot, 'summary.json'), {
-  sourceSha: '7bc7e6af8b0d29cdf2453025c6dcaed9b435c240',
+  sourceSha: '930555ef0ac22190961d45caff05d0ced7b61aa0',
   runtime: process.version,
   total: receipts.length,
   passed: receipts.filter(receipt => receipt.status === 'Passed').length,

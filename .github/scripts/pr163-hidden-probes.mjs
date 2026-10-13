@@ -9,12 +9,12 @@ import {
 import { basename, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const SOURCE = '7bc7e6af8b0d29cdf2453025c6dcaed9b435c240';
+const SOURCE = '930555ef0ac22190961d45caff05d0ced7b61aa0';
 const RUNTIME = '/app/runtime';
 const RETAINED = join(RUNTIME, 'generated/retained/hidden-flow-v1/runtime');
 const RESULTS = '/results/hidden';
 const SELF = fileURLToPath(import.meta.url);
-const SCENARIO = join(RUNTIME, 'flowblind-scenario-harness-v2.mjs');
+const SCENARIO = join(RUNTIME, 'flowblind-scenario-harness-v2.js');
 const ACTIVATION = join(RUNTIME,
   'generated/data/manifests/flowblind-private-hidden-flow-v1-activation-manifest-v1.json');
 const EXAMPLE = join(RETAINED, 'generated/data/examples/exact-null-component.json');
@@ -24,15 +24,15 @@ const COLLECTION_MS = 210_000;
 const RUNTIME_CASE_COUNT = 6;
 const OUTPUT_BYTES = 16 * 1024 * 1024;
 const PINS = Object.freeze([
-  [SCENARIO, '59ab3b7bfed4a102eb399b74aaf3a523439855f52515988067e526d32dcf56b1'],
-  [ACTIVATION, '4d596e0cb8dee8a6c0402e3f2233d5e224ebf669284cbad0a98b5652d7a6ab3d'],
+  [SCENARIO, 'efbf9bf4d52e9731e672121fb2647e669ba236cd2793a6d6184644d8d4e26997'],
+  [ACTIVATION, 'da68fb63eb7b0bf0d68be6fdeb487a8a1b5b017934e6932cd5d439f40064a8d6'],
   [EXAMPLE, '70e36e5f4ac8cad0f8c97cbe3a0f516e194493bb59be73a06d0fc2c9df8bea40'],
-  [join(RETAINED, 'flowblind-hidden-flow-capability-verification-v1.mjs'),
-    '4ebb0bf8db8e4b22345f892c04f4e5e8b02417c041af992b69c122d3a2a22e0d'],
-  [join(RETAINED, 'generated/flowblind-catalog-hidden-flow-runtime-v1.mjs'),
-    '29b7cf20974a9f1c5f42fff87ede181bcb848eeb2ffd70425a4d0f98a2d1b37f'],
+  [join(RETAINED, 'flowblind-hidden-flow-capability-verification-v1.js'),
+    '1e0a3b59d10d65140958ee91cd1e911c4a68750e3f4b0cd4dded5ee4c666c44f'],
+  [join(RETAINED, 'generated/flowblind-catalog-hidden-flow-runtime-v1.js'),
+    '162d466c18735d9c362396eb21770094a66fa5bd2682b833b5dd68fbf2774840'],
   [join(RETAINED, 'generated/data/flowblind-catalog-hidden-flow-package-lock-v1.json'),
-    '91b2644f438ec6e98593476412429b7a0203c4f3f8cde6f4849e6e1cb1507d48'],
+    '5adde457ed53ece29eec6bfffedfc835807ac16f276a786bd5dc19c71290c0c4'],
 ]);
 const COVERAGE_GAPS = Object.freeze([
   'No direct certificate-injection check: the shipped attested module does not export the inner verifier or solver injection. No internal code is extracted, evaluated, or patched.',
@@ -490,7 +490,7 @@ async function main() {
         if (index === 3) {
           const before = await snapshot(outputRoot);
           await save(join(caseRoot, 'before-restart-files.json'), before);
-          const firstRead = await invoke(join(RUNTIME, 'flowblind-report-resource-v2.mjs'),
+          const firstRead = await invoke(join(RUNTIME, 'flowblind-report-resource-v2.js'),
             [response.resource.uri], 'cold-read-1');
           assert.equal(firstRead.length, response.resource.byteLength);
           assert.equal(sha256(firstRead), response.resource.sha256);
@@ -511,7 +511,7 @@ async function main() {
           receipt.observed.restartInputRoot = restartInputRoot;
           receipt.observed.restartSelection = await snapshot(restartInputRoot);
           const restarted = JSON.parse(await invoke(
-            join(RUNTIME, 'flowblind-run-and-verify-study-v2.mjs'), [], 'cold-restart',
+            join(RUNTIME, 'flowblind-run-and-verify-study-v2.js'), [], 'cold-restart',
             { FLOWBLIND_INPUT_ROOT: restartInputRoot },
           ));
           receipt.observed.restartResponse = restarted;
@@ -519,7 +519,7 @@ async function main() {
           assert.equal(restarted.containsResults, response.containsResults);
           assert.deepEqual(restarted.result?.outcome, outcome);
           assert.equal(restarted.publication?.resourceUri, response.resource.uri);
-          const secondRead = await invoke(join(RUNTIME, 'flowblind-report-resource-v2.mjs'),
+          const secondRead = await invoke(join(RUNTIME, 'flowblind-report-resource-v2.js'),
             [restarted.publication.resourceUri], 'cold-read-2');
           assert(firstRead.equals(secondRead), 'Cold resource bytes changed across restart');
           const after = await snapshot(outputRoot);

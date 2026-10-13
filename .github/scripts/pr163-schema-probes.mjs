@@ -86,7 +86,7 @@ await writeFile(join(output, 'summary.json'), `${JSON.stringify({
   passed: receipts.filter(item => item.status === 'Passed').length,
   failed: receipts.filter(item => item.status === 'Failed').length,
   blocked: receipts.filter(item => item.status === 'Blocked').length,
-  sourceSha: '7bc7e6af8b0d29cdf2453025c6dcaed9b435c240',
+  sourceSha: '930555ef0ac22190961d45caff05d0ced7b61aa0',
 }, null, 2)}\n`);
 await writeFile(join(output, 'validator-package-lock.json'), await readFile('/review/package-lock.json'));
 process.exitCode = receipts.some(item => item.status !== 'Passed') ? 1 : 0;
