@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-06-01T21:28:53Z",
-  "commitSha": "d2ff53289094dfe60841dbfecdf412ee2495036c",
+  "generatedAt": "2026-10-15T01:34:24Z",
+  "commitSha": "680ab714431501c901797537583f45a49db6724d",
   "kits": [
     {
       "$schema": "../../docs/schemas/starter-kit-schema.json",
@@ -413,7 +413,7 @@
       },
       "availability": "healthy",
       "missingAgents": [],
-      "computedAt": "2026-06-01T21:28:53Z",
+      "computedAt": "2026-10-15T01:34:24Z",
       "kitPath": "starter-kits/chemistry-and-materials"
     },
     {
@@ -430,7 +430,7 @@
       },
       "license": "MIT",
       "category": "Silicon",
-      "homepage": "https://github.com/microsoft/discovery/tree/main/starter-kits/microsoft/chip-synthesis-timing",
+      "homepage": "https://github.com/microsoft/discovery/tree/main/starter-kits/chip-synthesis-timing",
       "party": "1p",
       "lifecycle": "active",
       "keywords": [
@@ -529,7 +529,7 @@
       },
       "availability": "healthy",
       "missingAgents": [],
-      "computedAt": "2026-06-01T21:28:53Z",
+      "computedAt": "2026-10-15T01:34:24Z",
       "kitPath": "starter-kits/chip-synthesis-timing"
     },
     {
@@ -946,7 +946,7 @@
       },
       "availability": "healthy",
       "missingAgents": [],
-      "computedAt": "2026-06-01T21:28:53Z",
+      "computedAt": "2026-10-15T01:34:24Z",
       "kitPath": "starter-kits/life-sciences"
     },
     {
@@ -1024,7 +1024,7 @@
       },
       "availability": "healthy",
       "missingAgents": [],
-      "computedAt": "2026-06-01T21:28:53Z",
+      "computedAt": "2026-10-15T01:34:24Z",
       "kitPath": "starter-kits/physics-cfd-sim"
     }
   ]
