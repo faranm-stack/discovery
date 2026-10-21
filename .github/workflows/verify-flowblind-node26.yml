@@ -1,0 +1,273 @@
+name: Verify coordinated FlowBlind Node 26 fix
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - review/flowblind-node26-validation-20261021
+    paths:
+      - .github/workflows/verify-flowblind-node26.yml
+      - .github/scripts/fbdep-*
+      - .github/scripts/fbnode-*
+
+permissions:
+  contents: read
+
+jobs:
+  flowblind:
+    if: github.repository == 'faranm-stack/discovery'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: base-control
+            sha: 702be6b1337809b7b2e918d80acca035a7c3dc77
+            source-repository: microsoft/discovery
+          - variant: combined-node26
+            sha: 0c5a58c4cb391b413a95c6ee06bbe195880860fc
+            source-repository: faranm-stack/discovery
+    env:
+      VARIANT: ${{ matrix.variant }}
+      SRC_SHA: ${{ matrix.sha }}
+      SRC_REPO: ${{ matrix.source-repository }}
+      PACKAGE_PATH: agents/flowblind-research-teammate-v2
+    steps:
+      - name: Fetch exact source, verify package blobs, record Dockerfile drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          gitdir="$RUNNER_TEMP/git"; src="$RUNNER_TEMP/source"; harness="$RUNNER_TEMP/harness"; results="$RUNNER_TEMP/results"
+          mkdir -p "$gitdir" "$src" "$harness" "$results"
+          printf 'Variant: %s\nSource: %s@%s\nHarness: %s@%s\nRun: %s/%s/actions/runs/%s attempt %s\n' \
+            "$VARIANT" "$SRC_REPO" "$SRC_SHA" "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            > "$results/provenance.txt"
+          date -u '+Started: %Y-%m-%dT%H:%M:%SZ' >> "$results/provenance.txt"
+          git -c core.hooksPath=/dev/null init -q "$gitdir"
+          GIT_TERMINAL_PROMPT=0 timeout 120s git -C "$gitdir" -c credential.helper= -c core.hooksPath=/dev/null \
+            fetch --no-tags --depth=1 "https://github.com/$SRC_REPO.git" "$SRC_SHA"
+          test "$(git -C "$gitdir" rev-parse FETCH_HEAD)" = "$SRC_SHA"
+          tree="$(git -C "$gitdir" rev-parse "$SRC_SHA:$PACKAGE_PATH")"
+          echo "Package tree: $tree" >> "$results/provenance.txt"
+          git -C "$gitdir" ls-tree -r "$SRC_SHA:$PACKAGE_PATH" > "$results/source-blobs.txt"
+          git -C "$gitdir" archive "$SRC_SHA:$PACKAGE_PATH" | tar -x -C "$src"
+          n=0
+          while read -r mode type expected file; do
+            test "$(git hash-object --no-filters "$src/$file")" = "$expected"; n=$((n+1))
+          done < "$results/source-blobs.txt"
+          echo "Source verification: $n/$n package blobs matched" | tee -a "$results/provenance.txt"
+          for f in fbdep-public-probes.mjs fbdep-hidden-probes.mjs fbnode-result-gate.sh fbnode-gate-controls.sh fbnode-negative-controls.sh; do
+            curl --fail --silent --show-error --location --retry 2 --connect-timeout 15 --max-time 60 \
+              "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/.github/scripts/$f" --output "$harness/$f"
+          done
+          sha256sum "$harness"/* > "$results/harness-sha256.txt"
+          {
+            echo "## Dockerfile base images and package-lock drift"
+            for tool in flowblind-prepare flowblind-run-verify; do
+              df="$src/tools/$tool/Dockerfile"; gen="$src/runtime/generated/data/package/$tool.Dockerfile"
+              echo "### $tool"; grep -E '^FROM ' "$df"
+              echo "tool Dockerfile sha256: $(sha256sum "$df" | cut -d' ' -f1)"
+              echo "generated package copy sha256: $(sha256sum "$gen" | cut -d' ' -f1)"
+              if cmp -s "$df" "$gen"; then echo "tool Dockerfile == generated package copy: yes"; else echo "tool Dockerfile == generated package copy: NO (drift)"; exit 1; fi
+            done
+            echo "### package-lock recorded Dockerfile hashes"
+            grep -B3 -A2 '"role": "\(prepare\|run\)-docker-context"' "$src/runtime/generated/data/flowblind-catalog-research-v2-package-lock-v1.json" | grep -E 'reference|sha256'
+          } | tee "$results/dockerfile-drift.txt"
+
+      - name: Check gate positive, negative, missing and empty receipt controls
+        shell: bash
+        run: bash "$RUNNER_TEMP/harness/fbnode-gate-controls.sh"
+
+      - name: Build both production tool images (linux/amd64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/results"
+          for role in prepare run; do
+            if [[ "$role" == prepare ]]; then tool=flowblind-prepare; else tool=flowblind-run-verify; fi
+            set +e
+            timeout --signal=TERM --kill-after=30s 600s docker build --pull --platform linux/amd64 --progress=plain \
+              --tag "fbdep-$role:$GITHUB_RUN_ID" "$RUNNER_TEMP/source/tools/$tool" 2>&1 | tee "$results/build-$role.log"
+            codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$results/build-$role.exit"
+            if [[ "${codes[0]}" == 0 ]]; then
+              docker image inspect "fbdep-$role:$GITHUB_RUN_ID" --format "$role image: {{.Id}} {{.Os}}/{{.Architecture}}" >> "$results/provenance.txt"
+            fi
+          done
+
+      - name: Inspect runtime identity inside each image (node, python, native deps)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/results"
+          for role in prepare run; do
+            if [[ "$(cat "$results/build-$role.exit")" != 0 ]]; then printf '125\n' > "$results/identity-$role.exit"; continue; fi
+            set +e
+            timeout 60s docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+              --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --entrypoint /bin/sh "fbdep-$role:$GITHUB_RUN_ID" -ec '
+                echo "uid: $(id -u)"
+                echo "node: $(node --version)"; node -p "\"node openssl \" + process.versions.openssl + \", v8 \" + process.versions.v8"
+                echo "python: $(python --version 2>&1)"
+                python -c "import numpy, scipy, clarabel; print(\"numpy\", numpy.__version__, \"scipy\", scipy.__version__, \"clarabel\", clarabel.__version__)"
+                echo "glibc: $(getconf GNU_LIBC_VERSION)"
+                if command -v ldd >/dev/null; then ldd /usr/local/bin/node; fi
+                if command -v ldd >/dev/null && ldd /usr/local/bin/node | grep -q "not found"; then echo "MISSING SHARED LIBRARY"; exit 3; fi
+              ' 2>&1 | tee "$results/identity-$role.log"
+            codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$results/identity-$role.exit"
+          done
+
+      - name: Run unchanged package node tests in each Dockerfile's pinned Node image
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/results"
+          for role in prepare run; do
+            tool=$([[ $role == prepare ]] && echo flowblind-prepare || echo flowblind-run-verify)
+            node_ref="$(grep -m1 -oE '^FROM node:[^ ]+' "$RUNNER_TEMP/source/tools/$tool/Dockerfile" | sed 's/^FROM //')"
+            echo "tests-$role node image: $node_ref" | tee -a "$results/provenance.txt"
+            set +e
+            timeout --signal=TERM --kill-after=30s 10m docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
+              --security-opt no-new-privileges --pids-limit 256 --memory 3g --cpus 2 --user 1000:1000 \
+              --tmpfs /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777 \
+              --tmpfs /work:rw,noexec,nosuid,nodev,size=1g,mode=1777 \
+              --mount "type=bind,src=$RUNNER_TEMP/source,dst=/source,readonly" \
+              --env HOME=/tmp --env CI=true --env NO_COLOR=1 \
+              --entrypoint /bin/sh "$node_ref" -ec '
+                cp -R /source /work/package; cd /work/package
+                echo "Node: $(node --version)"
+                node --test --test-reporter=tap tests/*.node-test.js
+              ' 2>&1 | tee "$results/tests-$role.log"
+            codes=("${PIPESTATUS[@]}")
+            set -e
+            log="$results/tests-$role.log"
+            t="$(awk '$1=="#"&&$2=="tests"{n=$3}END{print n}' "$log")"; p="$(awk '$1=="#"&&$2=="pass"{n=$3}END{print n}' "$log")"
+            f="$(awk '$1=="#"&&$2=="fail"{n=$3}END{print n}' "$log")"; c="$(awk '$1=="#"&&$2=="cancelled"{n=$3}END{print n}' "$log")"
+            s="$(awk '$1=="#"&&$2=="skipped"{n=$3}END{print n}' "$log")"
+            echo "tests-$role ($node_ref): tests=${t:-MISSING} pass=${p:-MISSING} fail=${f:-MISSING} cancelled=${c:-MISSING} skipped=${s:-MISSING} exit=${codes[0]}" | tee -a "$results/counts.txt"
+            code="${codes[0]}"
+            if [[ "$code" == 0 && ( "$t" != 65 || "$p" != 65 || "$f" != 0 || "$c" != 0 || "$s" != 0 ) ]]; then code=1; fi
+            printf '%s\n' "$code" > "$results/tests-$role.exit"
+          done
+
+      - name: Run public and private conformance probes in each image
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/results"
+          for role in prepare run; do
+            if [[ "$(cat "$results/build-$role.exit")" != 0 ]]; then
+              printf '125\n' > "$results/public-$role.exit"; printf '125\n' > "$results/hidden-$role.exit"; continue
+            fi
+            tool=$([[ $role == prepare ]] && echo flowblind-prepare || echo flowblind-run-verify)
+            node_tag="$(grep -m1 -oE '^FROM node:[0-9]+\.[0-9]+\.[0-9]+' "$RUNNER_TEMP/source/tools/$tool/Dockerfile" | sed 's/FROM node://')"
+            py_tag="$(grep -m1 -oE '^FROM python:[0-9]+\.[0-9]+\.[0-9]+' "$RUNNER_TEMP/source/tools/$tool/Dockerfile" | sed 's/FROM python://')"
+            for suite in public hidden; do
+              out="$results/$suite-$role"; mkdir -p "$out"; chmod 0777 "$out"
+              set +e
+              timeout --signal=TERM --kill-after=30s 300s docker run --rm --name "fbdep-$suite-$role-$GITHUB_RUN_ID" \
+                --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+                --pids-limit 256 --memory 3g --cpus 2 --user 10001:10001 \
+                --tmpfs /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777 \
+                --tmpfs /work:rw,noexec,nosuid,nodev,size=256m,mode=1777 \
+                --mount "type=bind,src=$RUNNER_TEMP/harness,dst=/harness,readonly" \
+                --mount "type=bind,src=$out,dst=/results/$suite" \
+                --env HOME=/tmp --env NO_COLOR=1 --env FLOWBLIND_SOURCE_SHA="$SRC_SHA" --env FBDEP_EXPECTED_NODE="$node_tag" --env FBDEP_EXPECTED_PYTHON="$py_tag" \
+                --entrypoint node "fbdep-$role:$GITHUB_RUN_ID" "/harness/fbdep-$suite-probes.mjs" 2>&1 | tee "$out.log"
+              codes=("${PIPESTATUS[@]}")
+              set -e
+              printf '%s\n' "${codes[0]}" > "$results/$suite-$role.exit"
+            done
+          done
+          sudo chmod -R a+rX "$results"
+
+      - name: End-to-end prepare -> run with the real entry points
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/results"
+          fixture="$results/public-run/regional-control/input"
+          [[ -f "$fixture/candidate.csv" ]] || fixture="$results/public-prepare/regional-control/input"
+          if [[ "$(cat "$results/build-prepare.exit")" != 0 || "$(cat "$results/build-run.exit")" != 0 || ! -f "$fixture/candidate.csv" ]]; then
+            printf '125\n' > "$results/e2e-prepare.exit"; printf '125\n' > "$results/e2e-run.exit"
+            echo 'End-to-end blocked by a failed image build or missing fixture; no fallback input fabricated.'; exit 0
+          fi
+          mkdir -p "$results/e2e/prepare-out" "$results/e2e/run-in" "$results/e2e/run-out"
+          chmod 0777 "$results/e2e/prepare-out" "$results/e2e/run-out"
+          common=(--network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 256 --memory 3g --cpus 2
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777
+            --env 'FLOWBLIND_RESEARCH_GOAL=Compare reference and candidate agreement across spatial regions.'
+            --env 'FLOWBLIND_DECISION_QUESTION=Which descriptive evidence is available?'
+            --env 'FLOWBLIND_NEXT_EVIDENCE_INTENT=Review the resulting evidence.')
+          set +e
+          timeout --signal=TERM --kill-after=10s 120s docker run --rm "${common[@]}" \
+            --mount "type=bind,src=$fixture,dst=/mnt/input,readonly" \
+            --mount "type=bind,src=$results/e2e/prepare-out,dst=/output" \
+            --env 'FLOWBLIND_METADATA_QUANTITY=Synthetic scalar values' \
+            --env 'FLOWBLIND_METADATA_REFERENCE_MEANING=Analytically specified reference values.' \
+            --env 'FLOWBLIND_METADATA_CANDIDATE_MEANING=Analytically specified candidate values.' \
+            --env 'FLOWBLIND_METADATA_COORDINATE_UNIT=mm' \
+            --env 'FLOWBLIND_METADATA_VALUE_UNIT=validation units' \
+            --env 'FLOWBLIND_METADATA_PROVENANCE=Synthetic fixture generated by the review harness.' \
+            --env 'FLOWBLIND_METADATA_LICENSE=CC0-1.0 synthetic fixture' \
+            "fbdep-prepare:$GITHUB_RUN_ID" > "$results/e2e/prepare.json" 2> "$results/e2e/prepare.stderr"
+          code=$?
+          set -e
+          if [[ "$code" == 0 ]] && ! jq -e '.status == "prepared-awaiting-confirmation" and .containsResults == false' "$results/e2e/prepare.json" >/dev/null; then code=1; fi
+          printf '%s\n' "$code" > "$results/e2e-prepare.exit"
+          if [[ "$code" != 0 ]]; then printf '125\n' > "$results/e2e-run.exit"; exit 0; fi
+          sudo chmod -R a+rX "$results/e2e"
+          cp "$fixture/candidate.csv" "$results/e2e/run-in/"
+          set +e
+          timeout --signal=TERM --kill-after=10s 180s docker run --rm "${common[@]}" \
+            --mount "type=bind,src=$results/e2e/run-in,dst=/mnt/input,readonly" \
+            --mount "type=bind,src=$results/e2e/prepare-out,dst=/mnt/preparation,readonly" \
+            --mount "type=bind,src=$results/e2e/run-out,dst=/output" \
+            "fbdep-run:$GITHUB_RUN_ID" > "$results/e2e/run.json" 2> "$results/e2e/run.stderr"
+          code=$?
+          set -e
+          if [[ "$code" == 0 ]] && ! jq -e '.status == "report-complete" and .containsResults == true and .result.verifiedStudy.deterministicReplayMatched == true' "$results/e2e/run.json" >/dev/null; then code=1; fi
+          if [[ "$code" == 0 ]] && ! jq -e '.result.verifiedStudy.result.baseline | .pairedPoints == 324 and .metrics.pearsonCorrelation.value == 1 and .metrics.meanAbsoluteError.value == 0 and .metrics.rangeNormalizedRmse.value == 0 and .metrics.hotspotRecall.value == 1 and .metrics.hotspotJaccard.value == 1' "$results/e2e/run.json" >/dev/null; then code=1; fi
+          printf '%s\n' "$code" > "$results/e2e-run.exit"
+          sudo chmod -R a+rX "$results/e2e"
+
+      - name: Prove missing-library and package-drift regressions are rejected
+        if: ${{ !cancelled() && matrix.variant == 'combined-node26' }}
+        shell: bash
+        run: bash "$RUNNER_TEMP/harness/fbnode-negative-controls.sh"
+
+      - name: Summarize
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          results="$RUNNER_TEMP/results"; mkdir -p "$results"
+          {
+            printf '## %s (`%s`)\n\n| Check | Exit (0=pass, 125=blocked) |\n|---|---|\n' "$VARIANT" "$SRC_SHA"
+            for check in build-prepare build-run identity-prepare identity-run tests-prepare tests-run public-prepare public-run hidden-prepare hidden-run e2e-prepare e2e-run gate-controls negative-loader negative-drift; do
+              f="$results/$check.exit"; printf '| %s | %s |\n' "$check" "$( [[ -f $f ]] && cat "$f" || echo NOT-RUN )"
+            done
+            printf '\n```\n'; cat "$results/counts.txt" 2>/dev/null; grep -hE '^(node|python|numpy|glibc|uid):|numpy ' "$results"/identity-*.log 2>/dev/null; cat "$results/dockerfile-drift.txt" 2>/dev/null; printf '```\n'
+            printf '\nOffline container validation only: no GPU, Azure, Discovery Studio, model calls or deployment. Not an approval.\n'
+          } | tee "$results/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: fbnode-${{ matrix.variant }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/results
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce required public validation receipts
+        if: always()
+        shell: bash
+        run: bash "$RUNNER_TEMP/harness/fbnode-result-gate.sh" "$RUNNER_TEMP/results" "$VARIANT"
