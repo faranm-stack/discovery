@@ -134,6 +134,8 @@ jobs:
               --env HOME=/tmp --env CI=true --env NO_COLOR=1 \
               --entrypoint /bin/sh "fbdep-$role:$GITHUB_RUN_ID" -ec '
                 cp -R /source /work/package; cd /work/package
+                # Keep the copied package byte-identical: stop Python writing __pycache__ into manifested dirs.
+                find /work/package -type d -path "*generated/data/python" -exec chmod -R a-w {} +
                 echo "Node: $(node --version)"
                 node --test tests/*.node-test.js
               ' 2>&1 | tee "$results/tests-$role.log"
@@ -219,7 +221,6 @@ jobs:
           if [[ "$code" != 0 ]]; then printf '125\n' > "$results/e2e-run.exit"; exit 0; fi
           sudo chmod -R a+rX "$results/e2e"
           cp "$fixture/candidate.csv" "$results/e2e/run-in/"
-          cp -R "$results/e2e/prepare-out/." "$results/e2e/run-in/"
           set +e
           timeout --signal=TERM --kill-after=10s 180s docker run --rm "${common[@]}" \
             --mount "type=bind,src=$results/e2e/run-in,dst=/mnt/input,readonly" \
@@ -257,7 +258,7 @@ jobs:
           retention-days: 14
 
   cuda-images-pr253:
-    if: github.repository == 'faranm-stack/discovery'
+    if: github.repository == 'faranm-stack/discovery' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     strategy:
