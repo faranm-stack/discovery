@@ -1,0 +1,457 @@
+name: Verify PR 162 fix
+
+# Fork-only validation for the proposed fix to microsoft/discovery#162.
+# This workflow is not part of the fix branch or the PR into the author's branch.
+
+on:
+  push:
+    branches:
+      - review/pr162-fix-validation
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr162-fix-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AGENT_PATH: agents/flow-cytometry-referee
+  TOOL_PATH: agents/flow-cytometry-referee/tools/flow-qc
+  BASE_SHA: c713a675e102b71b2ac37ecb0186fad815f07648
+  FIX_SHA: eee9b32cb250b45584b0e4e9f4d4889cfda8fe09
+  FIXTURE_SHA256: db2206a65e2375fa23e748a25d0d4bb4ed09c72fd00cfe120e8efaa3e317eb10
+
+jobs:
+  unit-tests:
+    if: github.repository == 'faranm-stack/discovery'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Confirm the tested agent files match the fix commit
+        run: |
+          set -euo pipefail
+          git diff --exit-code "$FIX_SHA" HEAD -- "$AGENT_PATH"
+          git --no-pager diff --stat "$BASE_SHA" "$FIX_SHA"
+
+      - name: Install tool dependencies (unpinned, as in the Dockerfile)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/unit-results"
+          python -m pip install --disable-pip-version-check \
+            flowio matplotlib numpy pandas scikit-learn scipy pytest pyyaml
+          python -m pip freeze | tee "$RUNNER_TEMP/unit-results/dependencies.txt"
+
+      - name: Run the tool tests on the fix
+        run: |
+          set -euo pipefail
+          python -m pytest "$TOOL_PATH" -v -ra -p no:cacheprovider \
+            --junitxml "$RUNNER_TEMP/unit-results/fix-junit.xml"
+          python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse(os.path.join(os.environ["RUNNER_TEMP"], "unit-results/fix-junit.xml")).getroot()
+          suite = root if root.tag == "testsuite" else root.find("testsuite")
+          counts = {key: int(suite.get(key, 0)) for key in ("tests", "failures", "errors", "skipped")}
+          print("fix test counts:", counts)
+          assert counts == {"tests": 7, "failures": 0, "errors": 0, "skipped": 0}, counts
+          PY
+
+      - name: Confirm the launcher test fails against the original tool.yaml
+        run: |
+          set -euo pipefail
+          control="$RUNNER_TEMP/original-launcher"
+          mkdir -p "$control"
+          cp "$TOOL_PATH/flow_qc_utils.py" "$TOOL_PATH/test_flow_qc_utils.py" "$control/"
+          git show "$BASE_SHA:$TOOL_PATH/tool.yaml" > "$control/tool.yaml"
+          set +e
+          python -m pytest "$control" -v -ra -p no:cacheprovider -k launcher \
+            --junitxml "$RUNNER_TEMP/unit-results/original-launcher-junit.xml"
+          status=$?
+          set -e
+          echo "pytest exit status against the original tool.yaml: $status"
+          python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+
+          path = os.path.join(os.environ["RUNNER_TEMP"], "unit-results/original-launcher-junit.xml")
+          root = ET.parse(path).getroot()
+          suite = root if root.tag == "testsuite" else root.find("testsuite")
+          counts = {key: int(suite.get(key, 0)) for key in ("tests", "failures", "errors", "skipped")}
+          print("original launcher test counts:", counts)
+          assert counts == {"tests": 3, "failures": 2, "errors": 0, "skipped": 0}, counts
+          PY
+
+      - name: Preserve unit-test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pr162-fix-unit-tests
+          path: ${{ runner.temp }}/unit-results
+          if-no-files-found: warn
+
+  container-launcher:
+    if: github.repository == 'faranm-stack/discovery'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install the YAML parser for the harness
+        run: python -m pip install --disable-pip-version-check pyyaml
+
+      - name: Build the fixed flow-qc image
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/pr162-fix"
+          mkdir -p "$root/results"
+          git diff --exit-code "$FIX_SHA" HEAD -- "$AGENT_PATH"
+          docker build --pull --progress=plain --tag pr162-fix:test "$TOOL_PATH" 2>&1 \
+            | tee "$root/results/image-build.log"
+          docker image inspect pr162-fix:test \
+            --format 'image-id={{.Id}} user={{.Config.User}} workdir={{.Config.WorkingDir}}' \
+            | tee "$root/results/provenance.txt"
+          printf 'Fix commit: %s\nHarness commit: %s\nRun: %s attempt %s\n' \
+            "$FIX_SHA" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$root/results/provenance.txt"
+          printf '%s\n' \
+            'Local rebuild of the fixed Dockerfile on a disposable GitHub runner, not a Discovery deployment.' \
+            'Launchers run with /bin/bash -c; the shell Discovery uses is not exercised.' \
+            'Agent behavior in Studio is not exercised; the documented snippet is run as written.' \
+            > "$root/results/limitations.txt"
+
+      - name: Prepare fixtures, scripts and launchers
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/pr162-fix"
+          mkdir -p "$root/inputs" "$root/empty-input" "$root/scripts"
+          base64 --decode > "$root/inputs/pr162-valid-100-events.fcs" <<'FCS'
+          RkNTMy4xICAgICAgICAgMjU2ICAgICA2NDAgICAgIDY0MSAgICAyMjQwICAgICAgIDAgICAgICAg
+          MCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg
+          ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg
+          ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg
+          ICAgICAgICAgICAgICAgICAgICAgICAgICAgIC8kQkVHSU5BTkFMWVNJUy8wLyRCRUdJTkRBVEEv
+          NjQxLyRCRUdJTlNURVhULzAvJEJZVEVPUkQvMSwyLDMsNC8kREFUQVRZUEUvRi8kRU5EQU5BTFlT
+          SVMvMC8kRU5EREFUQS8yMjQwLyRFTkRTVEVYVC8wLyRNT0RFL0wvJE5FWFREQVRBLzAvJFBBUi80
+          LyRUT1QvMTAwLyRQMUIvMzIvJFAxRS8wLDAvJFAxRy8xLjAvJFAxUi8yNjIxNDQvJFAxTi9GU0Mt
+          QS8kUDJCLzMyLyRQMkUvMCwwLyRQMkcvMS4wLyRQMlIvMjYyMTQ0LyRQMk4vU1NDLUEvJFAzQi8z
+          Mi8kUDNFLzAsMC8kUDNHLzEuMC8kUDNSLzI2MjE0NC8kUDNOL1RpbWUvJFA0Qi8zMi8kUDRFLzAs
+          MC8kUDRHLzEuMC8kUDRSLzI2MjE0NC8kUDROL0ZJVEMtQS8kVElNRVNURVAvMS4wLyRTUElMTE9W
+          RVIvMSxGSVRDLUEsMS8AAHpEAAD6RAAAAAAAAIA/AEB6RABA+kQAAIA/AAAAQACAekQAgPpEAAAA
+          QAAAQEAAwHpEAMD6RAAAQEAAAIBAAAB7RAAA+0QAAIBAAACgQABAe0QAQPtEAACgQAAAwEAAgHtE
+          AID7RAAAwEAAAOBAAMB7RADA+0QAAOBAAAAAQQAAfEQAAPxEAAAAQQAAEEEAQHxEAED8RAAAEEEA
+          ACBBAIB8RACA/EQAACBBAAAwQQDAfEQAwPxEAAAwQQAAQEEAAH1EAAD9RAAAQEEAAFBBAEB9RABA
+          /UQAAFBBAABgQQCAfUQAgP1EAABgQQAAcEEAwH1EAMD9RAAAcEEAAIBBAAB+RAAA/kQAAIBBAACI
+          QQBAfkQAQP5EAACIQQAAkEEAgH5EAID+RAAAkEEAAJhBAMB+RADA/kQAAJhBAACgQQAAf0QAAP9E
+          AACgQQAAqEEAQH9EAED/RAAAqEEAALBBAIB/RACA/0QAALBBAAC4QQDAf0QAwP9EAAC4QQAAwEEA
+          AIBEAAAARQAAwEEAAMhBACCARAAgAEUAAMhBAADQQQBAgEQAQABFAADQQQAA2EEAYIBEAGAARQAA
+          2EEAAOBBAICARACAAEUAAOBBAADoQQCggEQAoABFAADoQQAA8EEAwIBEAMAARQAA8EEAAPhBAOCA
+          RADgAEUAAPhBAAAAQgAAgUQAAAFFAAAAQgAABEIAIIFEACABRQAABEIAAAhCAECBRABAAUUAAAhC
+          AAAMQgBggUQAYAFFAAAMQgAAEEIAgIFEAIABRQAAEEIAABRCAKCBRACgAUUAABRCAAAYQgDAgUQA
+          wAFFAAAYQgAAHEIA4IFEAOABRQAAHEIAACBCAACCRAAAAkUAACBCAAAkQgAggkQAIAJFAAAkQgAA
+          KEIAQIJEAEACRQAAKEIAACxCAGCCRABgAkUAACxCAAAwQgCAgkQAgAJFAAAwQgAANEIAoIJEAKAC
+          RQAANEIAADhCAMCCRADAAkUAADhCAAA8QgDggkQA4AJFAAA8QgAAQEIAAINEAAADRQAAQEIAAERC
+          ACCDRAAgA0UAAERCAABIQgBAg0QAQANFAABIQgAATEIAYINEAGADRQAATEIAAFBCAICDRACAA0UA
+          AFBCAABUQgCgg0QAoANFAABUQgAAWEIAwINEAMADRQAAWEIAAFxCAOCDRADgA0UAAFxCAABgQgAA
+          hEQAAARFAABgQgAAZEIAIIREACAERQAAZEIAAGhCAECERABABEUAAGhCAABsQgBghEQAYARFAABs
+          QgAAcEIAgIREAIAERQAAcEIAAHRCAKCERACgBEUAAHRCAAB4QgDAhEQAwARFAAB4QgAAfEIA4IRE
+          AOAERQAAfEIAAIBCAACFRAAABUUAAIBCAACCQgAghUQAIAVFAACCQgAAhEIAQIVEAEAFRQAAhEIA
+          AIZCAGCFRABgBUUAAIZCAACIQgCAhUQAgAVFAACIQgAAikIAoIVEAKAFRQAAikIAAIxCAMCFRADA
+          BUUAAIxCAACOQgDghUQA4AVFAACOQgAAkEIAAIZEAAAGRQAAkEIAAJJCACCGRAAgBkUAAJJCAACU
+          QgBAhkQAQAZFAACUQgAAlkIAYIZEAGAGRQAAlkIAAJhCAICGRACABkUAAJhCAACaQgCghkQAoAZF
+          AACaQgAAnEIAwIZEAMAGRQAAnEIAAJ5CAOCGRADgBkUAAJ5CAACgQgAAh0QAAAdFAACgQgAAokIA
+          IIdEACAHRQAAokIAAKRCAECHRABAB0UAAKRCAACmQgBgh0QAYAdFAACmQgAAqEIAgIdEAIAHRQAA
+          qEIAAKpCAKCHRACgB0UAAKpCAACsQgDAh0QAwAdFAACsQgAArkIA4IdEAOAHRQAArkIAALBCAACI
+          RAAACEUAALBCAACyQgAgiEQAIAhFAACyQgAAtEIAQIhEAEAIRQAAtEIAALZCAGCIRABgCEUAALZC
+          AAC4QgCAiEQAgAhFAAC4QgAAukIAoIhEAKAIRQAAukIAALxCAMCIRADACEUAALxCAAC+QgDgiEQA
+          4AhFAAC+QgAAwEIAAIlEAAAJRQAAwEIAAMJCACCJRAAgCUUAAMJCAADEQgBAiUQAQAlFAADEQgAA
+          xkIAYIlEAGAJRQAAxkIAAMhC
+          FCS
+          printf '%s  %s\n' "$FIXTURE_SHA256" "$root/inputs/pr162-valid-100-events.fcs" | sha256sum --check
+
+          chmod 777 "$root/empty-input"
+          set +e
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --memory 1g --cpus 1 \
+            --tmpfs /tmp:rw,nosuid,nodev,size=64m,mode=1777 --env HOME=/tmp \
+            --mount "type=bind,src=$root/empty-input,dst=/fixture" \
+            pr162-fix:test python3 -c "from flowio import create_fcs; handle = open('/fixture/zero-events.fcs', 'wb'); create_fcs(handle, [], ['FSC-A', 'SSC-A', 'Time', 'FITC-A']); handle.close()" \
+            > "$root/results/zero-fixture.console.txt" 2>&1
+          generation_status=$?
+          set -e
+          echo "zero-event fixture generation exit status: $generation_status" >> "$root/results/zero-fixture.console.txt"
+          if [[ "$generation_status" -ne 0 ]]; then
+            rm -f "$root/empty-input/zero-events.fcs"
+          fi
+          cat "$root/results/zero-fixture.console.txt"
+
+          cat > "$root/scripts/studio-script.py" <<'PY'
+          import json
+          import os
+          import glob
+          import traceback
+          import pandas as pd
+          from flow_qc_utils import load_fcs, build_qc_report, write_qc_artifacts
+
+          input_dir = '/app/input'
+          output_dir = '/app/outputs'
+          os.makedirs(output_dir, exist_ok=True)
+
+          fcs_files = sorted(glob.glob(os.path.join(input_dir, '*.fcs')))
+          if len(fcs_files) != 1:
+              raise RuntimeError(f'Expected exactly 1 FCS file, found {len(fcs_files)}: {fcs_files}')
+
+          fcs_path = fcs_files[0]
+          base = os.path.splitext(os.path.basename(fcs_path))[0]
+
+          sample = load_fcs(fcs_path)
+          report = build_qc_report(sample)
+          write_qc_artifacts(report, output_dir, stem=base)
+          PY
+          printf '%s\n' "raise RuntimeError('deliberate failure')" > "$root/scripts/deliberate-failure.py"
+
+          python - <<'PY'
+          import os
+          import re
+          import subprocess
+          import textwrap
+          from pathlib import Path
+
+          import yaml
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "pr162-fix"
+          agent = yaml.safe_load(Path(os.environ["AGENT_PATH"], "agent.yaml").read_text(encoding="utf-8"))
+          blocks = re.findall(r"```python\n(.*?)\n\s*```", agent["instructions"], re.S)
+          assert len(blocks) == 1, blocks
+          snippet = textwrap.dedent(blocks[0]) + "\n"
+          assert snippet.count('"/path/to/input/sample.fcs"') == 1, snippet
+          assert snippet.count('"/path/to/output"') == 1, snippet
+          (root / "results/documented-snippet.py").write_text(snippet, encoding="utf-8")
+          for name, fixture in (
+              ("agent-snippet.py", "/app/input/pr162-valid-100-events.fcs"),
+              ("zero-events.py", "/app/input/zero-events.fcs"),
+          ):
+              script = snippet.replace("/path/to/input/sample.fcs", fixture).replace("/path/to/output", "/app/output")
+              (root / "scripts" / name).write_text(script, encoding="utf-8")
+
+          def resolve(text: str) -> str:
+              command = yaml.safe_load(text)["code_environments"][0]["command"]
+              resolved = command.replace("{{scriptName}}", "qc_run.py").replace("{{output_directory}}", "/app/output")
+              assert "{{" not in resolved, resolved
+              return resolved
+
+          tool_yaml = Path(os.environ["TOOL_PATH"], "tool.yaml")
+          original = subprocess.run(
+              ["git", "show", f"{os.environ['BASE_SHA']}:{tool_yaml.as_posix()}"],
+              check=True, capture_output=True, text=True,
+          ).stdout
+          (root / "results/launcher-fixed.txt").write_text(resolve(tool_yaml.read_text(encoding="utf-8")) + "\n")
+          (root / "results/launcher-original.txt").write_text(resolve(original) + "\n")
+          for script in (root / "scripts").glob("*.py"):
+              compile(script.read_text(encoding="utf-8"), str(script), "exec")
+          PY
+          cp "$root/scripts/"*.py "$root/results/"
+          cat "$root/results/launcher-fixed.txt" "$root/results/launcher-original.txt"
+
+      - name: Run launcher probes in the fixed image
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/pr162-fix"
+          run_probe() {
+            local name="$1" script="$2" launcher_file="$3" input_dir="$4"
+            local launcher output="$root/results/$name"
+            launcher="$(cat "$root/results/$launcher_file")"
+            mkdir -p "$output/output" "$output/outputs"
+            chmod -R 777 "$output"
+            set +e
+            timeout --signal=TERM --kill-after=10s 150s docker run --rm \
+              --name "pr162-fix-${GITHUB_RUN_ID}-${name}" \
+              --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+              --pids-limit 256 --memory 4g --cpus 2 \
+              --tmpfs /tmp:rw,nosuid,nodev,size=512m,mode=1777 --env HOME=/tmp \
+              --mount "type=bind,src=$input_dir,dst=/app/input,readonly" \
+              --mount "type=bind,src=$root/scripts/$script,dst=/qc_run.py,readonly" \
+              --mount "type=bind,src=$output/output,dst=/app/output" \
+              --mount "type=bind,src=$output/outputs,dst=/app/outputs" \
+              pr162-fix:test /bin/bash -c "$launcher" > "$root/results/$name.console.txt" 2>&1
+            local status=$?
+            set -e
+            printf '%s\n' "$status" > "$root/results/$name.exit-code.txt"
+            printf '%s exit status: %s\n' "$name" "$status"
+          }
+          run_probe agent-snippet-fixed agent-snippet.py launcher-fixed.txt "$root/inputs"
+          run_probe studio-script-fixed studio-script.py launcher-fixed.txt "$root/inputs"
+          run_probe deliberate-failure-fixed deliberate-failure.py launcher-fixed.txt "$root/inputs"
+          run_probe deliberate-failure-original deliberate-failure.py launcher-original.txt "$root/inputs"
+          if [[ -s "$root/empty-input/zero-events.fcs" ]]; then
+            run_probe zero-events-fixed zero-events.py launcher-fixed.txt "$root/empty-input"
+          else
+            echo "zero-event fixture was not created; zero-events probe not run"
+          fi
+
+      - name: Evaluate outcomes without converting failures into passes
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv
+          import json
+          import os
+          import struct
+          from pathlib import Path
+
+          results = Path(os.environ["RUNNER_TEMP"]) / "pr162-fix" / "results"
+          checks = []
+
+          def record(name, passed, detail, required=True):
+              checks.append({"check": name, "passed": bool(passed), "required": required, "detail": str(detail)[:600]})
+
+          def status(probe):
+              path = results / f"{probe}.exit-code.txt"
+              return int(path.read_text().strip()) if path.is_file() else None
+
+          def console(probe):
+              path = results / f"{probe}.console.txt"
+              return path.read_text(errors="replace") if path.is_file() else ""
+
+          def reject_constant(value):
+              raise ValueError(f"non-standard JSON constant: {value}")
+
+          probe = "agent-snippet-fixed"
+          record("Documented run_qc snippet exits 0", status(probe) == 0, status(probe))
+          output = results / probe / "output"
+          report_path = output / "pr162-valid-100-events_qc_report.json"
+          csv_path = output / "pr162-valid-100-events_channel_summary.csv"
+          png_path = output / "pr162-valid-100-events_dashboard.png"
+          names = sorted(path.name for path in output.iterdir()) if output.is_dir() else []
+          record("JSON report, CSV and dashboard written", all(path.is_file() for path in (report_path, csv_path, png_path)), names)
+          if report_path.is_file():
+              report = json.loads(report_path.read_text(encoding="utf-8"), parse_constant=reject_constant)
+              fitc = next(row for row in report["channel_summaries"] if row["channel"] == "FITC-A")
+              record(
+                  "Report: 100 events and channels FSC-A, SSC-A, Time, FITC-A",
+                  report["event_count"] == 100 and report["channels"] == ["FSC-A", "SSC-A", "Time", "FITC-A"],
+                  {"event_count": report["event_count"], "channels": report["channels"]},
+              )
+              record(
+                  "Report: FITC-A min 1, median 50.5, max 100",
+                  (fitc["minimum"], fitc["median"], fitc["maximum"]) == (1.0, 50.5, 100.0),
+                  fitc,
+              )
+          if csv_path.is_file():
+              rows = {row["channel"]: row for row in csv.DictReader(csv_path.open(encoding="utf-8"))}
+              record("CSV: FITC-A median 50.5", float(rows["FITC-A"]["median"]) == 50.5, rows.get("FITC-A"))
+          if png_path.is_file():
+              data = png_path.read_bytes()
+              width, height = struct.unpack(">II", data[16:24])
+              record("Dashboard is a valid PNG", data.startswith(b"\x89PNG\r\n\x1a\n") and width > 0 and height > 0, f"{width}x{height}")
+          lines = [line for line in console(probe).splitlines() if line.strip()]
+          try:
+              printed = json.loads(lines[-1])
+          except (IndexError, json.JSONDecodeError):
+              printed = {}
+          record(
+              "Printed result lists the three artifacts and 100 events",
+              set(printed.get("artifacts", {})) == {"qc_report_json", "qc_dashboard", "channel_summary_csv"}
+              and printed.get("report", {}).get("event_count") == 100,
+              list(printed.get("artifacts", {})),
+          )
+
+          probe = "studio-script-fixed"
+          expected = "TypeError: build_qc_report() missing 1 required positional argument: 'events'"
+          record("Studio-generated script now exits nonzero", status(probe) not in (None, 0), status(probe))
+          record("Its TypeError appears in the log tail", expected in console(probe), console(probe)[-400:])
+
+          probe = "deliberate-failure-fixed"
+          record("Deliberate Python failure exits 1", status(probe) == 1, status(probe))
+          record("Failure message appears in the log tail", "RuntimeError: deliberate failure" in console(probe), console(probe)[-400:])
+
+          probe = "deliberate-failure-original"
+          record("Control: original launcher exits 0 after the same failure", status(probe) == 0, status(probe))
+
+          probe = "zero-events-fixed"
+          if status(probe) is None:
+              record("Zero-event FCS probe ran", False, (results / "zero-fixture.console.txt").read_text(errors="replace"), required=False)
+          else:
+              record("Zero-event FCS exits nonzero", status(probe) != 0, status(probe))
+              outputs = sorted(path.name for path in (results / probe / "output").iterdir() if path.name != "logs.out")
+              record("Zero-event FCS writes no QC artifacts", not outputs, outputs)
+              record("Zero-event error says the file has no events", "contains no events" in console(probe), console(probe)[-400:], required=False)
+
+          (results / "assertions.json").write_text(json.dumps(checks, indent=2), encoding="utf-8")
+          summary = ["| Check | Result | Required | Detail |", "| --- | --- | --- | --- |"]
+          for item in checks:
+              detail = item["detail"].replace("|", "\\|").replace("\n", " ")[:200]
+              summary.append(f"| {item['check']} | {'PASS' if item['passed'] else 'FAIL'} | {'yes' if item['required'] else 'no'} | {detail} |")
+          text = "\n".join(summary)
+          print(text)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("## PR 162 fix: container launcher probes\n\n" + text + "\n")
+          failed = [item["check"] for item in checks if item["required"] and not item["passed"]]
+          if failed:
+              raise SystemExit(f"Required checks failed: {failed}")
+          PY
+
+      - name: Preserve probe evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pr162-fix-container-probes
+          path: ${{ runner.temp }}/pr162-fix/results
+          if-no-files-found: warn
+
+  catalog-validation:
+    if: github.repository == 'faranm-stack/discovery'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install validator dependencies
+        run: python -m pip install --disable-pip-version-check -r .github/requirements-ci.txt
+
+      - name: Validate the Flow Cytometry Referee agent
+        run: |
+          set -euo pipefail
+          git ls-files "$AGENT_PATH" > "$RUNNER_TEMP/changed-files.txt"
+          cat "$RUNNER_TEMP/changed-files.txt"
+          set +e
+          python .github/scripts/validate_pr.py \
+            --changed-files "$RUNNER_TEMP/changed-files.txt" \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --output "$RUNNER_TEMP/validation-results.json"
+          status=$?
+          set -e
+          python - <<'PY'
+          import json
+          import os
+
+          data = json.load(open(os.path.join(os.environ["RUNNER_TEMP"], "validation-results.json"), encoding="utf-8"))
+          print(f"passed={data['passed']} failures={data['failure_count']}")
+          for failure in data["failures"]:
+              print(f"  [{failure['rule_id']}] {failure['file']}:{failure['line']} - {failure['message']}")
+          PY
+          exit "$status"
