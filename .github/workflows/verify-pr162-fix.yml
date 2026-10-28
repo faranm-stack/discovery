@@ -75,7 +75,8 @@ jobs:
           cp "$TOOL_PATH/flow_qc_utils.py" "$TOOL_PATH/test_flow_qc_utils.py" "$control/"
           git show "$BASE_SHA:$TOOL_PATH/tool.yaml" > "$control/tool.yaml"
           set +e
-          python -m pytest "$control" -v -ra -p no:cacheprovider -k launcher \
+          python -m pytest "$control" -v -ra -p no:cacheprovider \
+            -k test_tool_launcher_returns_python_exit_status \
             --junitxml "$RUNNER_TEMP/unit-results/original-launcher-junit.xml"
           status=$?
           set -e
