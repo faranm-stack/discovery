@@ -19,7 +19,7 @@ env:
   AGENT_PATH: agents/flow-cytometry-referee
   TOOL_PATH: agents/flow-cytometry-referee/tools/flow-qc
   BASE_SHA: c713a675e102b71b2ac37ecb0186fad815f07648
-  FIX_SHA: eee9b32cb250b45584b0e4e9f4d4889cfda8fe09
+  FIX_SHA: 582001da5bdac08665dac80a005309fb3fa329aa
   FIXTURE_SHA256: db2206a65e2375fa23e748a25d0d4bb4ed09c72fd00cfe120e8efaa3e317eb10
 
 jobs:
@@ -43,12 +43,14 @@ jobs:
           git diff --exit-code "$FIX_SHA" HEAD -- "$AGENT_PATH"
           git --no-pager diff --stat "$BASE_SHA" "$FIX_SHA"
 
-      - name: Install tool dependencies (unpinned, as in the Dockerfile)
+      - name: Install the pinned tool dependencies from the Dockerfile
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/unit-results"
-          python -m pip install --disable-pip-version-check \
-            flowio matplotlib numpy pandas scikit-learn scipy pytest pyyaml
+          mapfile -t pins < <(grep -oE '[A-Za-z0-9_.-]+==[0-9][A-Za-z0-9_.]*' "$TOOL_PATH/Dockerfile")
+          printf 'Pinned in Dockerfile: %s\n' "${pins[*]}"
+          test "${#pins[@]}" -eq 6
+          python -m pip install --disable-pip-version-check "${pins[@]}" pytest pyyaml
           python -m pip freeze | tee "$RUNNER_TEMP/unit-results/dependencies.txt"
 
       - name: Run the tool tests on the fix
@@ -130,6 +132,8 @@ jobs:
           docker image inspect pr162-fix:test \
             --format 'image-id={{.Id}} user={{.Config.User}} workdir={{.Config.WorkingDir}}' \
             | tee "$root/results/provenance.txt"
+          docker run --rm --network none pr162-fix:test python3 -m pip freeze > "$root/results/dependencies.txt"
+          grep -E '^(FlowIO|flowio|matplotlib|numpy|pandas|scikit-learn|scipy)==' "$root/results/dependencies.txt"
           printf 'Fix commit: %s\nHarness commit: %s\nRun: %s attempt %s\n' \
             "$FIX_SHA" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$root/results/provenance.txt"
           printf '%s\n' \
@@ -416,6 +420,257 @@ jobs:
         with:
           name: pr162-fix-container-probes
           path: ${{ runner.temp }}/pr162-fix/results
+          if-no-files-found: warn
+
+  real-instrument-files:
+    if: github.repository == 'faranm-stack/discovery'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      FLOWIO_COMMIT: 83d28a22d42235c10d17afb017250ee208afed95
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Build the fixed flow-qc image
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/pr162-real"
+          mkdir -p "$root/files" "$root/results" "$root/scripts"
+          git diff --exit-code "$FIX_SHA" HEAD -- "$AGENT_PATH"
+          docker build --pull --progress=plain --tag pr162-fix:real "$TOOL_PATH" > "$root/results/image-build.log" 2>&1
+          docker run --rm --network none pr162-fix:real python3 -m pip freeze > "$root/results/dependencies.txt"
+          grep -E '^(FlowIO|flowio|matplotlib|numpy|pandas|scikit-learn|scipy)==' "$root/results/dependencies.txt"
+
+      - name: Download public FlowIO sample files at a pinned commit
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/pr162-real"
+          while IFS='|' read -r expected name; do
+            [ -z "$name" ] && continue
+            encoded="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$name")"
+            curl --fail --silent --show-error --location --retry 2 --max-time 120 \
+              "https://raw.githubusercontent.com/whitews/FlowIO/$FLOWIO_COMMIT/data/fcs_files/$encoded" \
+              --output "$root/files/$name"
+            actual="$(git hash-object "$root/files/$name")"
+            if [ "$actual" != "$expected" ]; then
+              echo "::error::Blob mismatch for $name"
+              exit 1
+            fi
+            printf '%s  %s\n' "$actual" "$name" | tee -a "$root/results/source-blobs.txt"
+          done <<'FILES'
+          75f1a770a3f2a1ec24a84e9751234b22c10a2e89|100715.fcs
+          c41b70af73ffd2cdcd6161b7aa863456bd8e321c|3FITC_4PE_004.fcs
+          6a0351135a7122ba3f5466e40297663d0f504841|B01 KC-A-W---91-US.fcs
+          2d71f54ccbe4800d3e5348d580361f1613e0041d|G11.fcs
+          a4c61a27010b7760541940512b5ee2fa2d3dd46a|data1.fcs
+          a39387da4514b1d65c10c7db30932f73037531e6|variable_int_example.fcs
+          1aa1819291dc125cfcbbe1c69e56c6c413b06a45|data_start_offset_discrepancy_example.fcs
+          bb5527ace0764bbc56aa22ee89a0b5afb57d2c0d|data_stop_offset_discrepancy_example.fcs
+          741625a076cdbe00dc633e26663f62138a1b44c2|coulter.lmd
+          FILES
+          printf 'Files from https://github.com/whitews/FlowIO at %s (BSD-3-Clause), downloaded at run time and not committed.\n' \
+            "$FLOWIO_COMMIT" > "$root/results/provenance.txt"
+
+      - name: Run run_qc on each file in the fixed image
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/pr162-real"
+          cat > "$root/scripts/real_files.py" <<'PY'
+          import json
+          import traceback
+          from pathlib import Path
+
+          import numpy as np
+          import pandas as pd
+          from flowio import FlowData
+
+          from flow_qc_utils import run_qc
+
+          FILES = Path("/files")
+          OUT = Path("/results")
+
+
+          def reject_constant(value):
+              raise ValueError(f"non-standard JSON constant: {value}")
+
+
+          def text_value(text, key):
+              for candidate in (key, f"${key}", key.upper(), f"${key.upper()}"):
+                  if candidate in text:
+                      return text[candidate]
+              return None
+
+
+          def boundary(path):
+              try:
+                  data = FlowData(str(path))
+                  mode = "default"
+              except Exception:
+                  data = FlowData(str(path), ignore_offset_error=True, ignore_offset_discrepancy=True)
+                  mode = "offset-tolerant"
+              numbers = sorted(data.channels, key=lambda value: int(value))
+              names = [data.channels[n].get("pnn") or f"channel_{n}" for n in numbers]
+              events = np.asarray(data.events, dtype=float).reshape(int(data.event_count), len(names))
+              rows = []
+              for index, number in enumerate(numbers):
+                  channel = data.channels[number]
+                  finite = events[:, index][np.isfinite(events[:, index])]
+                  try:
+                      pnr = float(channel.get("pnr"))
+                  except (TypeError, ValueError):
+                      pnr = None
+                  row = {"channel": names[index], "pnb": channel.get("pnb"), "pnr": pnr, "pne": channel.get("pne")}
+                  if pnr and finite.size:
+                      top = float(finite.max())
+                      row.update({
+                          "max_value": top,
+                          "events_at_max": int(np.sum(finite == top)),
+                          "events_ge_pnr": int(np.sum(finite >= pnr)),
+                          "events_ge_pnr_minus_1": int(np.sum(finite >= pnr - 1)),
+                      })
+                  rows.append(row)
+              return {
+                  "read_mode": mode,
+                  "datatype": text_value(data.text, "datatype"),
+                  "tot": text_value(data.text, "tot"),
+                  "flowio_event_count": int(data.event_count),
+                  "channels": rows,
+              }
+
+
+          results = []
+          for path in sorted(FILES.iterdir()):
+              entry = {"file": path.name, "bytes": path.stat().st_size}
+              target = OUT / "artifacts" / path.stem.replace(" ", "_")
+              try:
+                  result = run_qc(path, target)
+                  report = json.loads(
+                      Path(result["artifacts"]["qc_report_json"]).read_text(encoding="utf-8"),
+                      parse_constant=reject_constant,
+                  )
+                  summary = pd.read_csv(result["artifacts"]["channel_summary_csv"])
+                  png = Path(result["artifacts"]["qc_dashboard"]).read_bytes()
+                  entry.update({
+                      "run_qc": "ok",
+                      "event_count": report["event_count"],
+                      "channel_count": report["channel_count"],
+                      "parse_warnings": report["parse_warnings"],
+                      "compensation_status": report["compensation"]["status"],
+                      "time_integrity": report["time_integrity"],
+                      "outlier_available": report["outlier_summary"]["available"],
+                      "roles": report["channel_roles"],
+                      "csv_channels_match": summary["channel"].tolist() == report["channels"],
+                      "png_ok": png.startswith(b"\x89PNG\r\n\x1a\n"),
+                      "tool_range_fraction": {
+                          row["channel"]: row["at_declared_range_fraction"] for row in report["channel_summaries"]
+                      },
+                  })
+              except Exception as error:
+                  entry.update({
+                      "run_qc": "error",
+                      "error": f"{type(error).__name__}: {error}",
+                      "traceback": traceback.format_exc()[-1500:],
+                  })
+              try:
+                  entry["boundary"] = boundary(path)
+                  if entry["run_qc"] == "ok":
+                      entry["event_count_matches_flowio"] = (
+                          entry["event_count"] == entry["boundary"]["flowio_event_count"]
+                      )
+              except Exception as error:
+                  entry["boundary_error"] = f"{type(error).__name__}: {error}"
+              results.append(entry)
+
+          (OUT / "real-files.json").write_text(json.dumps(results, indent=2, default=str), encoding="utf-8")
+          for entry in results:
+              print(entry["file"], entry["run_qc"], entry.get("event_count"), entry.get("error", ""))
+          PY
+          chmod 777 "$root/results"
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --pids-limit 256 --memory 4g --cpus 2 \
+            --tmpfs /tmp:rw,nosuid,nodev,size=512m,mode=1777 --env HOME=/tmp \
+            --mount "type=bind,src=$root/files,dst=/files,readonly" \
+            --mount "type=bind,src=$root/scripts/real_files.py,dst=/real_files.py,readonly" \
+            --mount "type=bind,src=$root/results,dst=/results" \
+            pr162-fix:real python3 -u /real_files.py
+
+      - name: Evaluate real-file results
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          results_dir = Path(os.environ["RUNNER_TEMP"]) / "pr162-real" / "results"
+          results = json.loads((results_dir / "real-files.json").read_text(encoding="utf-8"))
+          required = {
+              "100715.fcs", "3FITC_4PE_004.fcs", "B01 KC-A-W---91-US.fcs",
+              "G11.fcs", "data1.fcs", "variable_int_example.fcs",
+          }
+          lines = [
+              "| File | Required | run_qc | Events | Matches FlowIO | CSV | PNG | Compensation | Detail |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+          ]
+          failed = []
+          for entry in results:
+              name = entry["file"]
+              ok = (
+                  entry["run_qc"] == "ok"
+                  and entry.get("event_count_matches_flowio") is True
+                  and entry.get("csv_channels_match") is True
+                  and entry.get("png_ok") is True
+              )
+              if name in required and not ok:
+                  failed.append(name)
+              detail = (entry.get("error") or "; ".join(entry.get("parse_warnings") or []))[:160].replace("|", "\\|")
+              lines.append(
+                  f"| {name} | {'yes' if name in required else 'no'} | {entry['run_qc']} | {entry.get('event_count', '')} | "
+                  f"{entry.get('event_count_matches_flowio', '')} | {entry.get('csv_channels_match', '')} | "
+                  f"{entry.get('png_ok', '')} | {entry.get('compensation_status', '')} | {detail} |"
+              )
+
+          lines += [
+              "",
+              "Declared-range boundary (scatter and fluorescence channels with events at or above PnR - 1):",
+              "",
+              "| File | Datatype | Channel | PnR | Max value | Events at max | Events >= PnR (tool counts) | Events >= PnR - 1 | Tool fraction |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+          ]
+          for entry in results:
+              info = entry.get("boundary") or {}
+              roles = entry.get("roles") or {}
+              measured = set(roles.get("scatter", []) + roles.get("fluorescence", []))
+              for row in info.get("channels", []):
+                  if row.get("events_ge_pnr_minus_1") and (not measured or row["channel"] in measured):
+                      lines.append(
+                          f"| {entry['file']} | {info.get('datatype')} | {row['channel']} | {row['pnr']:g} | "
+                          f"{row['max_value']:g} | {row['events_at_max']} | {row['events_ge_pnr']} | "
+                          f"{row['events_ge_pnr_minus_1']} | {(entry.get('tool_range_fraction') or {}).get(row['channel'])} |"
+                      )
+
+          text = "\n".join(lines)
+          print(text)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("## PR 162 fix: public real-instrument FCS files\n\n" + text + "\n")
+          if failed:
+              raise SystemExit(f"run_qc did not produce consistent outputs for required files: {failed}")
+          PY
+
+      - name: Preserve real-file evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pr162-fix-real-files
+          path: |
+            ${{ runner.temp }}/pr162-real/results/*.json
+            ${{ runner.temp }}/pr162-real/results/*.txt
+            ${{ runner.temp }}/pr162-real/results/*.log
           if-no-files-found: warn
 
   catalog-validation:
