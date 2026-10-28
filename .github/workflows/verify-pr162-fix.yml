@@ -19,7 +19,7 @@ env:
   AGENT_PATH: agents/flow-cytometry-referee
   TOOL_PATH: agents/flow-cytometry-referee/tools/flow-qc
   BASE_SHA: c713a675e102b71b2ac37ecb0186fad815f07648
-  FIX_SHA: 582001da5bdac08665dac80a005309fb3fa329aa
+  FIX_SHA: a71347548690845396c230d76a3a61abafffa20e
   FIXTURE_SHA256: db2206a65e2375fa23e748a25d0d4bb4ed09c72fd00cfe120e8efaa3e317eb10
 
 jobs:
@@ -66,7 +66,7 @@ jobs:
           suite = root if root.tag == "testsuite" else root.find("testsuite")
           counts = {key: int(suite.get(key, 0)) for key in ("tests", "failures", "errors", "skipped")}
           print("fix test counts:", counts)
-          assert counts == {"tests": 7, "failures": 0, "errors": 0, "skipped": 0}, counts
+          assert counts == {"tests": 9, "failures": 0, "errors": 0, "skipped": 0}, counts
           PY
 
       - name: Confirm the launcher test fails against the original tool.yaml
@@ -532,6 +532,7 @@ jobs:
                           "events_at_max": int(np.sum(finite == top)),
                           "events_ge_pnr": int(np.sum(finite >= pnr)),
                           "events_ge_pnr_minus_1": int(np.sum(finite >= pnr - 1)),
+                          "finite_count": int(finite.size),
                       })
                   rows.append(row)
               return {
@@ -639,27 +640,39 @@ jobs:
               "",
               "Declared-range boundary (scatter and fluorescence channels with events at or above PnR - 1):",
               "",
-              "| File | Datatype | Channel | PnR | Max value | Events at max | Events >= PnR (tool counts) | Events >= PnR - 1 | Tool fraction |",
-              "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+              "| File | Datatype | Channel | PnR | Max value | Events at max | Events >= PnR | Events >= PnR - 1 | Tool fraction | Tool matches PnR - 1 |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
           ]
+          mismatches = []
           for entry in results:
               info = entry.get("boundary") or {}
               roles = entry.get("roles") or {}
               measured = set(roles.get("scatter", []) + roles.get("fluorescence", []))
+              tool = entry.get("tool_range_fraction") or {}
               for row in info.get("channels", []):
+                  if entry["run_qc"] == "ok" and row["channel"] in measured and row.get("finite_count") and row["pnr"] > 1:
+                      expected = row["events_ge_pnr_minus_1"] / row["finite_count"]
+                      matches = tool.get(row["channel"]) is not None and abs(tool[row["channel"]] - expected) < 1e-12
+                      if not matches:
+                          mismatches.append(f"{entry['file']}:{row['channel']}")
+                  else:
+                      matches = None
                   if row.get("events_ge_pnr_minus_1") and (not measured or row["channel"] in measured):
                       lines.append(
                           f"| {entry['file']} | {info.get('datatype')} | {row['channel']} | {row['pnr']:g} | "
                           f"{row['max_value']:g} | {row['events_at_max']} | {row['events_ge_pnr']} | "
-                          f"{row['events_ge_pnr_minus_1']} | {(entry.get('tool_range_fraction') or {}).get(row['channel'])} |"
+                          f"{row['events_ge_pnr_minus_1']} | {tool.get(row['channel'])} | {matches} |"
                       )
 
           text = "\n".join(lines)
           print(text)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
               handle.write("## PR 162 fix: public real-instrument FCS files\n\n" + text + "\n")
+          print(f"declared-range mismatches (tool fraction vs events >= PnR - 1): {mismatches}")
+          if mismatches:
+              failed.append("declared-range fraction mismatch")
           if failed:
-              raise SystemExit(f"run_qc did not produce consistent outputs for required files: {failed}")
+              raise SystemExit(f"Required real-file checks failed: {failed} {mismatches}")
           PY
 
       - name: Preserve real-file evidence
