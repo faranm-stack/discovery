@@ -19,7 +19,7 @@ env:
   AGENT_PATH: agents/flow-cytometry-referee
   TOOL_PATH: agents/flow-cytometry-referee/tools/flow-qc
   BASE_SHA: c713a675e102b71b2ac37ecb0186fad815f07648
-  FIX_SHA: a71347548690845396c230d76a3a61abafffa20e
+  FIX_SHA: 2eaf6b0d635a5ce930fa8ea12f7afb903bce85a8
   FIXTURE_SHA256: db2206a65e2375fa23e748a25d0d4bb4ed09c72fd00cfe120e8efaa3e317eb10
 
 jobs:
@@ -66,7 +66,7 @@ jobs:
           suite = root if root.tag == "testsuite" else root.find("testsuite")
           counts = {key: int(suite.get(key, 0)) for key in ("tests", "failures", "errors", "skipped")}
           print("fix test counts:", counts)
-          assert counts == {"tests": 9, "failures": 0, "errors": 0, "skipped": 0}, counts
+          assert counts == {"tests": 10, "failures": 0, "errors": 0, "skipped": 0}, counts
           PY
 
       - name: Confirm the launcher test fails against the original tool.yaml
