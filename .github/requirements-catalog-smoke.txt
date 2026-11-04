@@ -1,0 +1,4 @@
+-r requirements-smoke.txt
+pyyaml==6.0.3
+jsonschema==4.26.0
+referencing==0.37.0

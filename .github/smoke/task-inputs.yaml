@@ -1,0 +1,79 @@
+# Input files each smoke task needs, by catalog agent.
+# The sweep attaches them as Discovery storage assets (like Studio's attach button)
+# using an environment-specific --input-assets mapping. A task whose files are not
+# staged is reported as blocked (input_not_staged) and is not submitted.
+# Fixture files live in .github/smoke/inputs/; entries with a slash are repo paths
+# (an agent's own example input), and that full path is the --input-assets key.
+schema_version: 1
+external_inputs:
+  dna.fasta: {reason: "Local test fixture not published; reviewed provenance and staging required."}
+  1UBQ.pdb: {source: "https://files.rcsb.org/download/1UBQ.pdb", reason: "Retrieve and verify source fixture before staging."}
+  1D3Z.pdb: {source: "https://files.rcsb.org/download/1D3Z.pdb", reason: "Retrieve and verify source fixture before staging."}
+  1AAR.pdb: {source: "https://files.rcsb.org/download/1AAR.pdb", reason: "Retrieve and verify source fixture before staging."}
+  1HSG.pdb: {source: "https://files.rcsb.org/download/1HSG.pdb", reason: "Retrieve and verify source fixture before staging."}
+  compositions.txt: {reason: "Curated input requires provenance review and explicit staging."}
+  query.fasta: {reason: "Sequence fixture requires provenance review and explicit staging."}
+  target.fasta: {reason: "Sequence fixture requires provenance review and explicit staging."}
+  alignment_input.fasta: {reason: "Sequence fixture requires provenance review and explicit staging."}
+  aspirin.smi: {reason: "Curated input requires provenance review and explicit staging."}
+  chemical_names.txt: {reason: "Curated input requires provenance review and explicit staging."}
+  alignments.sam: {reason: "Alignment fixture requires provenance review and explicit staging."}
+  unknown1.ms: {reason: "Spectrum fixture requires provenance review and explicit staging."}
+  dftb_in.hsd: {reason: "Configuration and associated parameter licenses require review before staging."}
+  e_coli_core.xml: {reason: "Model fixture requires source/license verification before staging."}
+  sequences.fasta: {reason: "Sequence fixture requires provenance review and explicit staging."}
+  counter16.v: {reason: "RTL fixture requires provenance review and explicit staging."}
+  dg_predictions.csv: {reason: "Curated numeric fixture requires provenance review and explicit staging."}
+  candidate.csv: {reason: "Author-defined input format and fixture provenance require verification."}
+  1G13.pdb:
+    source: https://files.rcsb.org/download/1G13.pdb
+    reason: Public structure required by the existing BoltzGen first task; not downloaded or staged by this repair.
+  O-O.skf:
+    source: https://dftb.org/parameters/download
+    reason: Obtain the task's mio-1-1 parameter set under its published license; not staged.
+  O-H.skf:
+    source: https://dftb.org/parameters/download
+    reason: Obtain the task's mio-1-1 parameter set under its published license; not staged.
+  H-O.skf:
+    source: https://dftb.org/parameters/download
+    reason: Obtain the task's mio-1-1 parameter set under its published license; not staged.
+  H-H.skf:
+    source: https://dftb.org/parameters/download
+    reason: Obtain the task's mio-1-1 parameter set under its published license; not staged.
+inputs:
+  # October 22 operations reached these tools without usable mounted inputs.
+  # Entries intentionally remain blocked until a NEW asset manifest stages them.
+  boltzgen: [agents/boltzgen/tools/boltzgen/example-input-files/1g13.cif]
+  nucleotide-tf: [dna.fasta]
+  gromacs: [1UBQ.pdb]
+  matminer: [compositions.txt]
+  mmseqs2: [query.fasta, target.fasta]
+  msa-align: [alignment_input.fasta]
+  molecular-groups: [aspirin.smi]
+  opsin: [chemical_names.txt]
+  samtools-suite: [alignments.sam]
+  sirius: [unknown1.ms]
+  # HSD alone is insufficient: this task also needs the licensed/approved SK set.
+  dftbplus: [dftb_in.hsd, O-O.skf, O-H.skf, H-O.skf, H-H.skf]
+  cobrapy: [e_coli_core.xml]
+  lammps:
+    - agents/lammps/tools/lammps-cpu/example-input-files/quick-test/in.lj.ehex
+    - agents/lammps/tools/lammps-cpu/example-input-files/quick-test/data.lj  # read_data in in.lj.ehex
+  dssp: [1UBQ.pdb]
+  esm-embed: [sequences.fasta]
+  foldseek: [1UBQ.pdb, 1D3Z.pdb, 1AAR.pdb]
+  fpocket: [1HSG.pdb]
+  freesasa: [1UBQ.pdb]
+  mdanalysis: [1UBQ.pdb]
+  p2rank: [1HSG.pdb]
+  plip: [1HSG.pdb]
+  prody: [1UBQ.pdb]
+  rdock: [1HSG.pdb]
+  tmalign: [1UBQ.pdb, 1D3Z.pdb]
+  rtl-ivlg-linter: [counter16.v]
+  rtl-yosys-syn: [counter16.v]
+  stat-agent: [dg_predictions.csv]
+  # Gate-level SKY130 netlist; produced by the rtl-yosys-syn run, then staged.
+  opensta: [counter16_sky130_netlist.v]
+  # Paired CFD-vs-PIV planar CSV; format must come from the agent's author.
+  flowblind-research-teammate-v2: [candidate.csv]

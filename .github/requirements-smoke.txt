@@ -1,0 +1,3 @@
+# Minimal live transport; no Foundry evaluator or LLM judge dependency.
+aiohttp==3.14.5
+azure-identity==1.26.0

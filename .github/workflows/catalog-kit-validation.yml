@@ -1,0 +1,77 @@
+name: Catalog Kit Validation (offline only)
+
+# LOCAL YAML IS NOT AN ENABLED SCHEDULE. Requires separate publication/default
+# branch placement and Actions enablement. This never runs kit/agent workloads.
+on:
+  push:
+    branches: ['automation/catalog-validation-*'] # Offline only; no live job.
+  schedule:
+    - cron: '0 6 * * 1,4' # Monday and Thursday, 06:00 UTC; best effort, not an SLA.
+  workflow_dispatch: {} # Manual dry-run only; no runtime/credential inputs.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: catalog-kit-validation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline-kit-plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout local inputs
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Install validator dependencies only
+        # Dependency bootstrap uses PyPI; the validator itself is offline.
+        run: python -m pip install -c .github/requirements-ci.txt jsonschema referencing pyyaml pytest
+      - name: Test deterministic planner
+        run: python -m pytest .github/tests/test_catalog_kit_validation.py .github/tests/test_catalog_public_report.py -q -p no:cacheprovider
+      - name: Generate offline plan and report
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/catalog-kit-validation"
+          set +e
+          python .github/scripts/catalog_kit_validation.py --repo-root . --format json > "$RUNNER_TEMP/catalog-kit-validation/kit-plan-report.json"
+          json_status=$?
+          python .github/scripts/catalog_kit_validation.py --repo-root . --format markdown > "$RUNNER_TEMP/catalog-kit-validation/kit-report.md"
+          markdown_status=$?
+          if [ "$json_status" -ne 0 ] || [ "$markdown_status" -ne 0 ]; then exit 1; fi
+      - name: Export allowlisted public report
+        if: always()
+        run: |
+          python .github/scripts/catalog_public_report.py \
+            --kit-report "$RUNNER_TEMP/catalog-kit-validation/kit-plan-report.json" \
+            --source-revision "$GITHUB_SHA" --output-dir "$RUNNER_TEMP/catalog-public-report"
+      - name: Upload public HTML and CSV only
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-public-kits-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/catalog-public-report/catalog-public-report.html
+            ${{ runner.temp }}/catalog-public-report/catalog-public-report.csv
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish status only
+        if: always()
+        run: echo 'Offline static checks and planning only. No kit E2E or agent execution is established. Inspect the public HTML/CSV report.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain offline evidence (not runtime proof)
+        if: ${{ always() && github.event.repository.private && vars.CATALOG_SMOKE_ARTIFACTS_APPROVED == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-kit-offline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/catalog-kit-validation/
+          if-no-files-found: error
+          retention-days: 14

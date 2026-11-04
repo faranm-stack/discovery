@@ -1,0 +1,116 @@
+name: Agent Report Card
+
+# workflow_run never downloads evidence, creates issues or sends email by default.
+on:
+  workflow_run:
+    workflows: ['Catalog Smoke Sweep']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      sweep_run_id:
+        description: Source sweep run ID in this repository
+        type: string
+        required: true
+      sweep_attempt:
+        description: Source run attempt (unique evidence identity)
+        type: string
+        required: true
+        default: '1'
+      notify:
+        description: Explicitly create a private status-only issue; may trigger GitHub email
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: agent-report-card
+  cancel-in-progress: false
+
+jobs:
+  report-card:
+    if: >-
+      github.event.repository.private && vars.CATALOG_SMOKE_ARTIFACTS_APPROVED == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (vars.CATALOG_SCORECARD_AUTOMATION_ENABLED == 'true' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        github.event.workflow_run.head_branch == github.event.repository.default_branch &&
+        github.event.workflow_run.event != 'pull_request'))
+    environment: catalog-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SWEEP_RUN_ID: ${{ inputs.sweep_run_id || github.event.workflow_run.id }}
+      SWEEP_ATTEMPT: ${{ inputs.sweep_attempt || github.event.workflow_run.run_attempt }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # Trusted default-branch harness only; never execute workflow_run head code.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r .github/requirements-ci.txt
+      - name: Verify source provenance and download exact attempt
+        run: |
+          [[ "$SWEEP_RUN_ID" =~ ^[1-9][0-9]*$ && "$SWEEP_ATTEMPT" =~ ^[1-9][0-9]*$ ]] || exit 1
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SWEEP_RUN_ID" > "$RUNNER_TEMP/source-run.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          r = json.loads((Path(os.environ['RUNNER_TEMP']) / 'source-run.json').read_text())
+          assert r['repository']['full_name'] == os.environ['GITHUB_REPOSITORY']
+          assert r['head_repository']['full_name'] == os.environ['GITHUB_REPOSITORY']
+          assert r['path'] == '.github/workflows/catalog-smoke-sweep.yml'
+          assert r['event'] in {'schedule', 'workflow_dispatch'}
+          assert r['head_branch'] == os.environ['DEFAULT_BRANCH']
+          assert r['run_attempt'] == int(os.environ['SWEEP_ATTEMPT'])
+          PY
+          gh run download "$SWEEP_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "catalog-sweep-$SWEEP_RUN_ID-$SWEEP_ATTEMPT" --dir "$RUNNER_TEMP/catalog-sweep"
+      - name: Regrade offline with tracked owner history; no failure streak or eviction inference
+        if: always()
+        run: |
+          python .github/scripts/catalog_workflow_preflight.py finalize \
+            --repo-root "$GITHUB_WORKSPACE" --output-dir "$RUNNER_TEMP/catalog-sweep" \
+            --mode live --run-label "sweep-$SWEEP_RUN_ID-a$SWEEP_ATTEMPT"
+      - name: Report status only
+        if: always()
+        run: echo 'Protected offline report. Unknown attribution requires human review; no author relay or automatic eviction.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ always() && github.event.repository.private && vars.CATALOG_SMOKE_ARTIFACTS_APPROVED == 'true' }}
+        with:
+          name: agent-report-card-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/catalog-sweep/report-card/
+            ${{ runner.temp }}/catalog-sweep/next-run-memory.json
+            ${{ runner.temp }}/catalog-sweep/next-run-handoff.md
+          retention-days: 90
+          if-no-files-found: warn
+
+  notify:
+    needs: report-card
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.notify == true &&
+      github.event.repository.private && vars.CATALOG_SMOKE_ARTIFACTS_APPROVED == 'true' &&
+      vars.CATALOG_SCORECARD_NOTIFICATIONS_APPROVED == 'true'
+    environment: catalog-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Explicit private status-only issue (no evidence, contacts or author mentions)
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title 'Protected catalog report ready for owner review' \
+            --body "Review protected artifacts: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID . No author defect or eviction decision is established."

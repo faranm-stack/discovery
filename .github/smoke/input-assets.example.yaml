@@ -1,0 +1,5 @@
+# Copy to input-assets.yaml (git-ignored) after staging .github/smoke/inputs/ into the
+# project's linked storage. Values are storage asset ARM IDs, the same IDs Studio's
+# attach button sends. Pass with: catalog_sweep.py --input-assets input-assets.yaml
+assets:
+  1UBQ.pdb: /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Discovery/storageContainers/<container>/storageAssets/<asset>

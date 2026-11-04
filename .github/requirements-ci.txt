@@ -1,5 +1,7 @@
 # Direct dependencies for trusted validators, generators, and their tests.
 # Keep versions here so Dependabot can update them and workflows cannot drift.
+aiohttp==3.14.5
+azure-identity==1.26.0
 codespell==2.4.3
 dnspython==2.9.0
 jsonschema==4.26.0

@@ -1,0 +1,199 @@
+name: Catalog Smoke Sweep
+
+# Monday + Thursday UTC. Schedules are offline unless BOTH live switches are set.
+on:
+  push:
+    branches: ['automation/catalog-validation-*'] # Offline plan/tests only.
+  schedule:
+    - cron: '0 8 * * 1,4'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Offline plan or explicitly approved live run
+        type: choice
+        options: [plan, live]
+        default: plan
+      max_invocations:
+        description: Explicit new-response cap (0 blocks live)
+        type: number
+        default: 0
+      concurrency:
+        description: Global workers 1..4; existing lane limits remain
+        type: number
+        default: 2
+      allow_lanes:
+        description: Explicit approved lanes; comma-separated
+        type: string
+        default: cpu
+      deploy_missing:
+        description: Approve isolated missing-agent registration; no overwrites
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: catalog-smoke-weekly-agent-svc-test
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r .github/requirements-ci.txt
+      - name: Validate offline workflow contracts
+        run: python -m pytest .github/tests/test_catalog_workflow_preflight.py .github/tests/test_catalog_public_report.py -q
+      - name: Record offline run identity
+        run: python .github/scripts/catalog_workflow_preflight.py prepare --output-dir "$RUNNER_TEMP/catalog-plan"
+      - name: Produce offline plan (no upstream calls or Azure authentication)
+        run: python .github/scripts/catalog_sweep.py --mode plan --output-dir "$RUNNER_TEMP/catalog-plan"
+      - name: Preserve scorecard and next-run memory even on failure
+        if: always()
+        run: |
+          python .github/scripts/catalog_workflow_preflight.py finalize \
+            --output-dir "$RUNNER_TEMP/catalog-plan" --mode plan \
+            --run-label "plan-$GITHUB_RUN_ID-a$GITHUB_RUN_ATTEMPT"
+      - name: Export allowlisted public report
+        if: always()
+        run: |
+          python .github/scripts/catalog_public_report.py \
+            --ledger "$RUNNER_TEMP/catalog-plan/catalog-results.json" \
+            --inventory-json .github/smoke/catalog-inventory-baseline.json \
+            --source-revision "$GITHUB_SHA" --output-dir "$RUNNER_TEMP/catalog-public-report"
+      - name: Upload public HTML and CSV only
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-public-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/catalog-public-report/catalog-public-report.html
+            ${{ runner.temp }}/catalog-public-report/catalog-public-report.csv
+          if-no-files-found: error
+          retention-days: 7
+      - name: Publish status only
+        if: always()
+        run: echo 'Offline plan only. No live execution or scientific pass is established.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ always() && github.event.repository.private && vars.CATALOG_SMOKE_ARTIFACTS_APPROVED == 'true' }}
+        with:
+          name: catalog-offline-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/catalog-plan/
+          retention-days: 7
+
+  sweep:
+    needs: plan
+    if: >-
+      github.event.repository.private && vars.CATALOG_SMOKE_ARTIFACTS_APPROVED == 'true' &&
+      vars.CATALOG_SMOKE_LIVE_ENABLED == 'true' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.mode == 'live') ||
+       (github.event_name == 'schedule' && vars.CATALOG_SMOKE_SCHEDULE_LIVE_ENABLED == 'true'))
+    environment: catalog-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      WORKSPACE_API_URL: ${{ vars.DISCOVERY_WORKSPACE_API_URL }}
+      RESOURCE_GROUP: ${{ vars.DISCOVERY_RESOURCE_GROUP }}
+      MODEL: ${{ vars.CATALOG_SMOKE_MODEL }}
+      PRIVATE_REPO: ${{ github.event.repository.private }}
+      CATALOG_SMOKE_LIVE_ENABLED: ${{ vars.CATALOG_SMOKE_LIVE_ENABLED }}
+      CATALOG_SMOKE_ARTIFACTS_APPROVED: ${{ vars.CATALOG_SMOKE_ARTIFACTS_APPROVED }}
+      CATALOG_SMOKE_INPUTS_APPROVED: ${{ vars.CATALOG_SMOKE_INPUTS_APPROVED }}
+      CATALOG_SMOKE_SCHEDULE_LIVE_ENABLED: ${{ vars.CATALOG_SMOKE_SCHEDULE_LIVE_ENABLED }}
+      EXPECTED_AGENT_COUNT: ${{ vars.CATALOG_SMOKE_EXPECTED_AGENT_COUNT }}
+      MAX_INVOCATIONS: ${{ github.event_name == 'schedule' && vars.CATALOG_SMOKE_SCHEDULE_MAX_INVOCATIONS || inputs.max_invocations }}
+      WORKERS: ${{ github.event_name == 'schedule' && vars.CATALOG_SMOKE_SCHEDULE_CONCURRENCY || inputs.concurrency }}
+      ALLOW_LANES: ${{ github.event_name == 'schedule' && vars.CATALOG_SMOKE_SCHEDULE_ALLOW_LANES || inputs.allow_lanes }}
+      CLIENT_TIMEOUT: '1800'
+      DEPLOY_MISSING: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_missing }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r .github/requirements-ci.txt
+      - name: Record unique run label and private input map
+        id: identity
+        env:
+          CATALOG_INPUT_ASSETS_YAML: ${{ secrets.CATALOG_INPUT_ASSETS_YAML }}
+        run: python .github/scripts/catalog_workflow_preflight.py prepare --output-dir "$RUNNER_TEMP/catalog-sweep"
+      - name: Freeze offline plan before any credential use
+        run: python .github/scripts/catalog_sweep.py --mode plan --output-dir "$RUNNER_TEMP/catalog-sweep"
+      - name: Require exact latest pinned inventory, source bytes, inputs and bounded approval
+        run: |
+          python .github/scripts/catalog_workflow_preflight.py gate \
+            --output-dir "$RUNNER_TEMP/catalog-sweep" --input-assets "$RUNNER_TEMP/catalog-input-assets.yaml"
+      # No SHA-pinned azure/login exists in this repository. Do not invent a hash,
+      # use a floating action, start sign-in or grant roles. Existing authorized CLI
+      # credentials are checked below; hosted runners block until an approved,
+      # repository-verified pinned login step is supplied at publication.
+      - name: Verify existing Azure authentication and staged asset metadata (GET only)
+        run: |
+          python .github/scripts/catalog_workflow_preflight.py auth \
+            --output-dir "$RUNNER_TEMP/catalog-sweep" --input-assets "$RUNNER_TEMP/catalog-input-assets.yaml"
+      - name: Process approved bounded queue (future parent CLI run-label required)
+        env:
+          RUN_LABEL: ${{ steps.identity.outputs.run_label }}
+        run: |
+          extra=()
+          if [ "$DEPLOY_MISSING" = true ]; then extra+=(--deploy-missing); fi
+          python .github/scripts/catalog_sweep.py \
+            --mode live --repo-root "$GITHUB_WORKSPACE" \
+            --workspace-api-url "$WORKSPACE_API_URL" --subscription "$AZURE_SUBSCRIPTION_ID" \
+            --resource-group "$RESOURCE_GROUP" --model "$MODEL" \
+            --project weekly-agent-svc-test --agent-prefix catalog-smoke- \
+            --timeout "$CLIENT_TIMEOUT" --max-invocations "$MAX_INVOCATIONS" \
+            --concurrency "$WORKERS" --allow-lanes "$ALLOW_LANES" \
+            --run-label "$RUN_LABEL" --input-assets "$RUNNER_TEMP/catalog-input-assets.yaml" \
+            --output-dir "$RUNNER_TEMP/catalog-sweep" "${extra[@]}"
+      - name: Preserve scorecard and next-run memory even on failure
+        if: always()
+        run: |
+          python .github/scripts/catalog_workflow_preflight.py finalize \
+            --output-dir "$RUNNER_TEMP/catalog-sweep" --mode live \
+            --run-label "sweep-$GITHUB_RUN_ID-a$GITHUB_RUN_ATTEMPT"
+      - name: Export allowlisted public report
+        if: always()
+        run: |
+          python .github/scripts/catalog_public_report.py \
+            --ledger "$RUNNER_TEMP/catalog-sweep/catalog-results.json" \
+            --inventory-json .github/smoke/catalog-inventory-baseline.json \
+            --source-revision "$GITHUB_SHA" --output-dir "$RUNNER_TEMP/catalog-public-report"
+      - name: Upload public HTML and CSV only
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-public-sweep-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/catalog-public-report/catalog-public-report.html
+            ${{ runner.temp }}/catalog-public-report/catalog-public-report.csv
+          if-no-files-found: error
+          retention-days: 7
+      - name: Publish status only (no private evidence in summaries)
+        if: always()
+        run: echo 'Inspect protected artifacts and unresolved remote work before another run. No automatic retry or Proceed.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve private execution ledger, scorecard and handoff
+        if: ${{ always() && github.event.repository.private && vars.CATALOG_SMOKE_ARTIFACTS_APPROVED == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-sweep-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/catalog-sweep/
+          retention-days: 7
+          if-no-files-found: warn

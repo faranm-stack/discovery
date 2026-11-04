@@ -624,6 +624,8 @@ def test_ci_python_dependencies_are_pinned_and_workflows_use_the_manifest():
         for requirement in requirements
     )
     assert {requirement.split("==", 1)[0].lower() for requirement in requirements} == {
+        "aiohttp",
+        "azure-identity",
         "codespell",
         "dnspython",
         "jsonschema",

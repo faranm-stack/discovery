@@ -1,0 +1,314 @@
+# Curated first tasks for catalog agents whose README has no example prompt.
+# Each targets the agent's FIRST documented tool action (README Tools table, or the
+# agent description when no table exists) with a minimal, real domain input.
+# Inline inputs are the task input: write them to the tool input directory as given.
+# Rows from this file are reported as prompt_source=curated_first_task, never as
+# README-documented tasks.
+schema_version: 1
+tasks:
+  r-statistics-agent:
+    action: descriptive statistics
+    prompt: |
+      Inspect the attached observations.csv from the catalog's five-observation synthetic example.
+      Report column types and missingness, and create descriptive statistics and histograms
+      without silently dropping rows. The columns x and y are synthetic observations, not
+      independent clinical study evidence. Save the executed script, tables, plots, and R
+      session information. Preserve required human confirmation before execution.
+  alphafold-db:
+    action: fetch_structure
+    prompt: Fetch the AlphaFold predicted structure for UniProt accession P69905 (human hemoglobin subunit alpha) and report the file path and mean pLDDT.
+  ase:
+    action: optimize_structure
+    prompt: |
+      Relax this copper dimer with the EMT potential and BFGS, then report the final energy and Cu-Cu distance. Input structure (XYZ):
+      2
+      Cu dimer
+      Cu 0.0 0.0 0.0
+      Cu 0.0 0.0 2.8
+  biopython:
+    action: parse_sequences
+    prompt: |
+      Parse these sequences and report id, length and description for each record. Input (FASTA):
+      >sp|P69905|HBA_HUMAN Hemoglobin subunit alpha
+      MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSH
+      >sp|P68871|HBB_HUMAN Hemoglobin subunit beta
+      MVHLTPEEKSAVTALWGKVNVDEVGGEALGRLLVVYPWTQRFFESFGDLST
+  blast-plus:
+    action: makeblastdb
+    prompt: |
+      Build a protein BLAST database from this FASTA and report the database name and sequence count. Input (FASTA):
+      >HBA_HUMAN
+      MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSH
+      >HBB_HUMAN
+      MVHLTPEEKSAVTALWGKVNVDEVGGEALGRLLVVYPWTQRFFESFGDLST
+  cantera:
+    action: equilibrate
+    prompt: Compute the equilibrium composition of a stoichiometric methane/air mixture (CH4:O2:N2 = 1:2:7.52) at 1500 K and 1 atm with GRI-Mech 3.0 and report the major species mole fractions.
+  chembl:
+    action: compound search
+    prompt: Search ChEMBL for the compound imatinib and return its ChEMBL ID, max phase and molecular weight.
+  clinical-trials:
+    action: query
+    prompt: Search ClinicalTrials.gov for trials of semaglutide in heart failure and return the first 5 NCT IDs with titles and status.
+  cobrapy:
+    action: flux_balance_analysis
+    prompt: Load the E. coli core metabolic model (BiGG e_coli_core SBML) and run flux-balance analysis; report the biomass objective value.
+  copasi-basico:
+    action: run_timecourse
+    prompt: Simulate a single mass-action reaction A -> B with k = 0.1 s^-1, A0 = 10 mM, B0 = 0, from 0 to 50 s as an SBML model, and report A and B at t = 50 s.
+  crest:
+    action: iMTD-GC conformer search
+    prompt: Run a CREST iMTD-GC conformer search with GFN2-xTB for n-butane (SMILES CCCC) and report the number of conformers and the lowest relative energies.
+  dftbplus:
+    action: run_dftb
+    prompt: Run a DFTB+ SCC single-point energy for a water molecule (O 0 0 0; H 0.757 0.586 0; H -0.757 0.586 0, in Angstrom) with mio-1-1 parameters and report the total energy.
+  dssp:
+    action: assign_secondary_structure
+    prompt: Run DSSP on PDB 1UBQ (ubiquitin) and report the counts of helix and strand residues.
+  ensembl:
+    action: query_ensembl
+    prompt: Look up the gene BRCA2 in Homo sapiens via Ensembl and report its Ensembl gene ID, chromosome location and biotype.
+  foldseek:
+    action: structure_search
+    prompt: Run a Foldseek structure search of PDB 1UBQ against the target set PDB 1D3Z and 1AAR, and report the top hit with E-value and TM-score.
+  fpocket:
+    action: detect_pockets
+    prompt: Run fpocket on PDB 1HSG (HIV-1 protease) and report the top 3 pockets with scores and volumes.
+  freesasa:
+    action: compute_sasa
+    prompt: Compute the solvent-accessible surface area of PDB 1UBQ and report total, polar and apolar SASA.
+  gromacs:
+    action: energy minimization
+    override: true
+    prompt: |
+      Prepare the attached 1UBQ.pdb with the AMBER99SB-ILDN force field in vacuum and run a steepest-descent energy minimization only; report the final potential energy and maximum force.
+      Use the attached structure, not a download. gromacs_utils.run_command accepts an argument list and returns subprocess.CompletedProcess: read result.returncode/result.stdout/result.stderr, never unpack it as a tuple. Do not pass an entire shell pipeline as one executable.
+  hmmer:
+    action: hmmbuild
+    prompt: |
+      Build a profile HMM from this alignment and report the model length. Input (aligned FASTA):
+      >seq1
+      MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMF
+      >seq2
+      MVLSGEDKSNIKAAWGKIGGHGAEYGAEALERMF
+      >seq3
+      MVLSAADKTNVKAAWSKVGGHAGEYGAEALERMF
+  iqtree:
+    action: build_tree
+    prompt: |
+      Infer a maximum-likelihood tree from this DNA alignment and report the Newick tree and best-fit model. Input (aligned FASTA):
+      >A
+      ATGGCTAGCTAGCTAGGCTAACGTTAGC
+      >B
+      ATGGCTAGCTTGCTAGGCTAACGTAAGC
+      >C
+      ATGGCAAGCTAGCTTGGCTAACCTTAGC
+      >D
+      ATGGCAAGCTTGCTTGGCAAACCTTAGC
+  janus:
+    action: generate molecules
+    prompt: Run JANUS for 1 generation with a small population seeded from SMILES CCO and c1ccccc1O, using RDKit QED as the fitness function, and report the top 5 generated SMILES with fitness.
+  kegg:
+    action: query_kegg
+    prompt: Retrieve the KEGG entry hsa:7157 (TP53) and report its name, definition and linked pathways.
+  matchms:
+    action: compare_spectra
+    prompt: |
+      Compute pairwise cosine similarity between these two spectra and report the score and matched peaks. Input (MGF):
+      BEGIN IONS
+      TITLE=spec1
+      PEPMASS=195.0877
+      CHARGE=1+
+      110.0713 20
+      138.0662 60
+      195.0877 100
+      END IONS
+      BEGIN IONS
+      TITLE=spec2
+      PEPMASS=195.0877
+      CHARGE=1+
+      110.0710 25
+      138.0660 55
+      195.0880 100
+      END IONS
+  materials-project:
+    action: query_materials
+    prompt: Query Materials Project for the formula Si and report the most stable entry's material ID, band gap and energy above hull.
+  matminer:
+    action: featurize
+    prompt: |
+      Featurize these compositions with element-property statistics and report the number of features and a few values. Input (one formula per line):
+      Fe2O3
+      NaCl
+  mdanalysis:
+    action: analyze_trajectory
+    prompt: Use PDB 1UBQ as both topology and single-frame coordinates and compute the radius of gyration and RMSD of the protein C-alpha atoms.
+  mmseqs2:
+    action: search
+    prompt: |
+      Search the query against the target with MMseqs2 easy-search and report the hits with identity and E-value.
+      Query (FASTA):
+      >q_HBA
+      MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSH
+      Target (FASTA):
+      >t_HBA
+      MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSH
+      >t_HBB
+      MVHLTPEEKSAVTALWGKVNVDEVGGEALGRLLVVYPWTQRFFESFGDLST
+  modeller:
+    action: build_model
+    prompt: Build one comparative model of human ubiquitin carrying the I44A mutation using PDB 1UBQ chain A as the template (write the .ali alignment from the two sequences), and report the model file and DOPE score.
+  molecular-groups:
+    action: functional group analysis
+    prompt: Identify the functional groups in aspirin (SMILES CC(=O)Oc1ccccc1C(=O)O) and report any safety-screening flags.
+  mordred:
+    action: compute_descriptors
+    prompt: |
+      Compute Mordred 2D descriptors for these SMILES and report the descriptor count and molecular weight for each. Input (one SMILES per line):
+      CCO
+      c1ccccc1O
+  msa-align:
+    action: align
+    prompt: |
+      Build a multiple sequence alignment from this FASTA and report the alignment length. Input (FASTA):
+      >HBA_HUMAN
+      MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSH
+      >HBB_HUMAN
+      MVHLTPEEKSAVTALWGKVNVDEVGGEALGRLLVVYPWTQRFFESFGDLST
+      >MYG_HUMAN
+      MGLSDGEWQLVLNVWGKVEADIPGHGQEVLIRLFKGHPETLEKFDKFKHLKSEDEMKAS
+  nmrglue:
+    action: process_nmr
+    prompt: Process a 1D NMRPipe FID of 1024 complex points (spectral width 8000 Hz, 600 MHz, one decaying signal at 1200 Hz) written with nmrglue from those parameters, and report dimensions and basic statistics.
+  openbabel:
+    action: convert_formats
+    prompt: Convert ethanol (SMILES CCO) to SDF with generated 3D coordinates and report the atom count and output file path.
+  opsin:
+    action: name_to_structure
+    prompt: |
+      Convert these chemical names to SMILES. Input (one name per line):
+      2-acetyloxybenzoic acid
+      ethanol
+  p2rank:
+    action: predict_sites
+    prompt: Predict ligand-binding sites for PDB 1HSG (HIV-1 protease) with P2Rank and report the top 3 pockets with scores and residues.
+  phonopy:
+    action: compute_phonons
+    prompt: |
+      Generate 2x2x2 supercell displacements for this silicon structure and report the number of displacements and supercell atoms. Input (POSCAR):
+      Si2
+      1.0
+      0.0 2.715 2.715
+      2.715 0.0 2.715
+      2.715 2.715 0.0
+      Si
+      2
+      Direct
+      0.00 0.00 0.00
+      0.25 0.25 0.25
+  plip:
+    action: profile_interactions
+    prompt: Profile the non-covalent protein-ligand interactions in PDB 1HSG (HIV-1 protease with inhibitor MK1) and report hydrogen bonds and hydrophobic contacts.
+  prody:
+    action: normal_mode_analysis
+    prompt: Compute ANM normal modes for PDB 1UBQ C-alpha atoms and report the first 3 non-trivial mode eigenvalues and the most mobile residues.
+  pubmed:
+    action: search
+    prompt: Search PubMed for recent publications on GLP-1 receptor agonists and cardiovascular outcomes and return 5 PMIDs with titles.
+  pymatgen:
+    action: analyze_structure
+    prompt: |
+      Analyze this crystal structure and report the space group, density and lattice parameters. Input (POSCAR):
+      Si2
+      1.0
+      0.0 2.715 2.715
+      2.715 0.0 2.715
+      2.715 2.715 0.0
+      Si
+      2
+      Direct
+      0.00 0.00 0.00
+      0.25 0.25 0.25
+  pyopenms:
+    action: process_spectra
+    prompt: Summarize an mzML file containing two MS1 spectra (peaks at m/z 195.0877 and 138.0662) written with pyOpenMS from those values; report spectrum count, MS levels and base peak.
+  pyscf:
+    action: run_scf
+    prompt: |
+      Run an RHF/STO-3G single-point energy on this water geometry and report the total energy in Hartree. Input (XYZ, Angstrom):
+      3
+      water
+      O 0.000 0.000 0.000
+      H 0.757 0.586 0.000
+      H -0.757 0.586 0.000
+  rdock:
+    action: dock_ligands
+    prompt: Dock the co-crystallized ligand MK1 back into PDB 1HSG (HIV-1 protease) with an rDock cavity defined around the ligand, and report the top pose score.
+  rxnmapper:
+    action: map_reactions
+    prompt: |
+      Compute the atom mapping and confidence for this reaction. Input (reaction SMILES):
+      CC(=O)O.OCC>>CC(=O)OCC.O
+  samtools-suite:
+    action: process_alignments
+    prompt: |
+      Convert this SAM to sorted, indexed BAM and report flagstat and idxstats. Input (SAM):
+      @HD	VN:1.6	SO:coordinate
+      @SQ	SN:chr1	LN:1000
+      r1	0	chr1	100	60	10M	*	0	0	ACGTACGTAC	IIIIIIIIII
+      r2	16	chr1	200	60	10M	*	0	0	TTGCAATGCA	IIIIIIIIII
+  sirius:
+    action: elucidate_structure
+    prompt: |
+      Run SIRIUS molecular formula identification on this MS/MS input and report the top formula candidates. Input (.ms):
+      >compound unknown1
+      >parentmass 195.0877
+      >ionization [M+H]+
+      >ms2
+      195.0877 100
+      138.0662 60
+      110.0713 20
+  spglib:
+    action: analyze_symmetry
+    prompt: |
+      Determine the space group and number of symmetry operations of this structure. Input (POSCAR):
+      Si2
+      1.0
+      0.0 2.715 2.715
+      2.715 0.0 2.715
+      2.715 2.715 0.0
+      Si
+      2
+      Direct
+      0.00 0.00 0.00
+      0.25 0.25 0.25
+  tellurium:
+    action: simulate_model
+    prompt: Simulate the model A -> B with rate k1*A, k1 = 0.1, A = 10, B = 0 from t = 0 to 50 (write it as SBML), and report A and B at t = 50.
+  tmalign:
+    action: align_structures
+    prompt: Structurally align PDB 1UBQ (query) against PDB 1D3Z model 1 (reference) with TM-align and report TM-score and RMSD.
+  uniprot:
+    action: query_uniprot
+    prompt: Search UniProtKB for reviewed human TP53 (gene:TP53 AND organism_id:9606 AND reviewed:true) and report the accession, protein name and length.
+  viennarna:
+    action: fold_rna
+    prompt: |
+      Predict the MFE secondary structure for this RNA and report the dot-bracket structure and MFE. Input (FASTA):
+      >hairpin
+      GGGGAAACCCCAUUUGGGGAAACCCC
+  flowblind-research-teammate-v2:
+    action: prepare_study
+    # README's CFD-vs-PIV example needs data we do not have; this is the attached synthetic grid.
+    override: true
+    prompt: >-
+      Prepare a regional agreement study comparing the reference and candidate values across spatial
+      regions in the attached candidate.csv. Quantity: synthetic values. Reference meaning: reference values.
+      Candidate meaning: candidate values. Coordinate unit: mm. Value unit: units. Provenance: synthetic
+      test data. License: CC0.
+    expected_output: >-
+      The prepare tool runs once and returns a declaration preview of 324 points, says nothing was
+      computed, and does not call the run tool.
+    # Checked on an approved run-and-verify turn (reference equals candidate). Not asserted by the sweep yet.
+    expected_run_metrics: {points: 324, pearson: 1, rmse: 0, mae: 0}
+    input_sha256: {candidate.csv: 75cb751f59de4b47ed09a826d8237a33a33cb789dae7afdb9c61fe25cc23cd94}
