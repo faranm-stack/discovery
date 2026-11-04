@@ -99,6 +99,13 @@ updates:
         applies-to: "security-updates"
         patterns:
           - "*"
+    ignore:
+      # Python minor/major base-image upgrades need hash-locked wheel and runtime
+      # validation per agent (see #253, #271, #297). Patch updates still flow.
+      - dependency-name: "python"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
     labels:
       - "automated-dep-update"
     commit-message:
