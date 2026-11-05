@@ -29,6 +29,13 @@ ROOT = Path(__file__).resolve().parents[2]
 API_VERSION = "2026-06-01"
 SCOPE = "https://discovery.azure.com/.default"
 TERMINAL = {"completed", "failed", "incomplete", "cancelled", "canceled"}
+OPERATION_FETCH_LIMIT = 16  # Evidence retrieval bound, NOT a remote tool-call cap.
+
+
+def tool_call_observations(response):
+    calls = [item.get("name") for item in response.get("output") or []
+             if item.get("type") == "function_call"]
+    return {"observed_tool_call_count": len(calls), "observed_calls": calls}
 
 
 def pending_confirmations(response):
@@ -141,6 +148,20 @@ def operation_ids(response, expected_tool):
         if isinstance(operation_id, str) and re.fullmatch(r"[a-fA-F0-9]{32}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}", operation_id):
             ids.add(operation_id)
     return sorted(ids)
+
+
+def linked_operations(response):
+    """Include all service-supplied operation links, not just the expected tool."""
+    extensions = (response.get("discoveryProperties") or {}).get("itemExtensions") or {}
+    links = {}
+    for item_id, extension in extensions.items():
+        if not isinstance(extension, dict) or not extension.get("supercomputerOperationId"):
+            continue
+        operation_id = extension["supercomputerOperationId"]
+        if not isinstance(operation_id, str) or not re.fullmatch(r"[a-fA-F0-9]{32}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}", operation_id):
+            raise ValueError("Invalid service operation identifier")
+        links[item_id] = operation_id
+    return links
 
 
 def _completed_operation(operation, operation_id, marker):
@@ -433,6 +454,7 @@ async def _run_live_session(args, report, output, credential, token, aiohttp, Di
                 raise SmokeError("response_id", "Returned response does not match the submitted response id.")
             # Raw responses can include private data; only write to local/restricted storage.
             write_json(output / "response.json", response)
+            report.update(tool_call_observations(response))
             waiting = pending_confirmations(response)
             if waiting:
                 # Persist actionable status immediately, without exposing tool
@@ -445,12 +467,19 @@ async def _run_live_session(args, report, output, credential, token, aiohttp, Di
                 write_json(output / "approval-needed.json", notice)
                 if not report.get("human_approval_pending"):
                     print(f"HUMAN APPROVAL REQUIRED: {args.agent} in {args.project}; review its Studio session. No automatic approval.", flush=True)
-                report["human_approval_pending"] = True
+                report.update(human_approval_pending=True, phase="approval_checkpoint",
+                              verdict="inconclusive", tool_roundtrip_status="inconclusive",
+                              reason="confirmation_requires_human_review; reservation retained; no automatic approval",
+                              remote_may_be_running=True, server_may_be_running=True,
+                              response_status=response.get("status"), usage=response.get("usage", "unknown"))
+                # Return the worker promptly. The queue retains its reservation;
+                # only subsequent read-only reconciliation can release it.
+                write_json(output / "operations.json", {})
                 write_json(output / "summary.json", report)
+                return
             elif report.get("human_approval_pending"):
                 report["human_approval_pending"] = False
-                write_json(output / "approval-needed.json", {"status": "no_pending_confirmation",
-                           "response_id": report["response_id"]})
+                (output / "approval-needed.json").unlink(missing_ok=True)
                 write_json(output / "summary.json", report)
             if response.get("status") in TERMINAL:
                 report["server_terminal_observed"] = True
@@ -458,10 +487,10 @@ async def _run_live_session(args, report, output, credential, token, aiohttp, Di
                 report["usage"] = response.get("usage", "unknown")
                 report["phase"] = "tool_operation_evidence"
                 operations = {}
-                linked_ids = sorted({op for tool in report["expected_tools"] for op in operation_ids(response, tool)})
+                linked_ids = sorted(set(linked_operations(response).values()))
                 # Same bound as read-only reconciliation; the classifier judges each operation.
-                if len(linked_ids) > 4:
-                    raise SmokeError("multiple_operations", "More than four tool operations; review required.")
+                if len(linked_ids) > OPERATION_FETCH_LIMIT:
+                    raise SmokeError("multiple_operations", "More than sixteen tool operations; review required.")
                 for operation_id in linked_ids:
                     _, operations[operation_id] = await client._request(
                         "GET", client._url("tools", "projects", args.project, "operations", operation_id,

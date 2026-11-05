@@ -5,8 +5,12 @@ import io
 import json
 from pathlib import Path
 import re
+import socket
 import subprocess
+import sys
 from types import SimpleNamespace
+from unittest.mock import Mock
+from urllib.error import HTTPError
 
 import pytest
 import yaml
@@ -15,6 +19,14 @@ import catalog_workflow_preflight as subject
 
 ROOT = Path(__file__).resolve().parents[2]
 SHA = "a" * 40
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    def blocked(*args, **kwargs):
+        pytest.fail("real network is forbidden in offline preflight tests")
+    monkeypatch.setattr(socket.socket, "connect", blocked)
+    monkeypatch.setattr(socket, "create_connection", blocked)
 
 
 def repo_fixture(tmp_path, names=("example",)):
@@ -317,10 +329,13 @@ def test_auth_requires_gate_before_using_existing_credentials(tmp_path):
         subject.auth(tmp_path, out, None)
 
 
-@pytest.mark.parametrize("wrong_target", [False, True])
-def test_auth_uses_only_existing_cli_and_get_metadata(tmp_path, monkeypatch, wrong_target):
+@pytest.mark.parametrize("cli_state", ["matching", "wrong_tenant", "wrong_subscription", "unauthenticated"])
+def test_auth_uses_only_existing_cli_and_get_metadata(tmp_path, monkeypatch, cli_state):
     import azure.identity
 
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    factory = Mock(side_effect=AssertionError("local auth must not use the credential factory"))
+    monkeypatch.setitem(sys.modules, "azure_credential", SimpleNamespace(get_credential=factory))
     repo = repo_fixture(tmp_path)
     out = tmp_path / "out"
     plan(out, files=("example.fasta",))
@@ -335,16 +350,18 @@ def test_auth_uses_only_existing_cli_and_get_metadata(tmp_path, monkeypatch, wro
         monkeypatch.setenv(key, value)
     def cli(args, **kwargs):
         assert args == ["az", "account", "show", "--output", "json"]
-        return SimpleNamespace(returncode=0, stdout=json.dumps({"id": subscription,
-                               "tenantId": "wrong" if wrong_target else "tenant"}))
+        return SimpleNamespace(returncode=int(cli_state == "unauthenticated"), stdout=json.dumps({
+            "id": "wrong" if cli_state == "wrong_subscription" else subscription,
+            "tenantId": "wrong" if cli_state == "wrong_tenant" else "tenant"}))
     monkeypatch.setattr(subject.subprocess, "run", cli)
+    closed = []
     class Credential:
         def __init__(self, **kwargs):
             assert kwargs == {"tenant_id": "tenant", "subscription": subscription}
         def get_token(self, scope):
             return SimpleNamespace(token="NEVER-LOG-THIS-TOKEN")
         def close(self):
-            pass
+            closed.append(True)
     requests = []
     class Opener:
         def open(self, request, timeout):
@@ -354,17 +371,248 @@ def test_auth_uses_only_existing_cli_and_get_metadata(tmp_path, monkeypatch, wro
             return io.BytesIO(json.dumps(payload).encode())
     monkeypatch.setattr(azure.identity, "AzureCliCredential", Credential)
     monkeypatch.setattr(subject, "build_opener", lambda *a: Opener())
-    if wrong_target:
-        with pytest.raises(ValueError, match="no account switch"):
+    if cli_state != "matching":
+        message = "no sign-in attempted" if cli_state == "unauthenticated" else "no account switch"
+        with pytest.raises(ValueError, match=message):
             subject.auth(repo, out, path)
         assert requests == []
+        assert closed == []
     else:
         subject.auth(repo, out, path)
         assert len(requests) == 2
+        assert closed == [True]
         receipt = json.loads((out / "workflow-preflight.json").read_text())
+        assert receipt["authentication"] == "existing_cli_read_verified"
         assert receipt["assets_metadata_verified"] is True
         assert receipt["asset_file_contents_verified"] is False
         assert "NEVER-LOG-THIS-TOKEN" not in (out / "workflow-preflight.json").read_text()
+    factory.assert_not_called()
+
+
+@pytest.fixture
+def oidc_auth(tmp_path, monkeypatch):
+    import azure.identity
+
+    repo = repo_fixture(tmp_path)
+    out = tmp_path / "out"
+    plan(out, files=("example.fasta",))
+    receipt = out / "workflow-preflight.json"
+    receipt.write_text('{"status":"passed","authentication":"not_yet_checked"}', encoding="utf-8")
+    subscription = "11111111-1111-1111-1111-111111111111"
+    asset = f"/subscriptions/{subscription}/resourceGroups/rg/providers/Microsoft.Discovery/storageContainers/inputs/storageAssets/fixture"
+    path = tmp_path / "assets.yaml"
+    path.write_text(yaml.safe_dump({"assets": {"example.fasta": asset}}), encoding="utf-8")
+    environment = {
+        "GITHUB_ACTIONS": "true", "WORKSPACE_API_URL": "https://example.workspace.discovery.azure.com",
+        "AZURE_SUBSCRIPTION_ID": subscription, "AZURE_TENANT_ID": "22222222-2222-2222-2222-222222222222",
+        "AZURE_CLIENT_ID": "33333333-3333-3333-3333-333333333333", "RESOURCE_GROUP": "rg", "MODEL": "gpt-5-mini",
+        "ACTIONS_ID_TOKEN_REQUEST_URL": "https://token.actions.githubusercontent.com/token?opaque=PRIVATE-URL",
+        "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "PRIVATE-REQUEST-TOKEN",
+    }
+    for key, value in environment.items():
+        monkeypatch.setenv(key, value)
+    def forbidden(*args, **kwargs):
+        pytest.fail("CI auth must not use subprocess or fallback credentials")
+    process = Mock(side_effect=forbidden)
+    monkeypatch.setattr(subject.subprocess, "run", process)
+    monkeypatch.setattr(azure.identity, "AzureCliCredential", forbidden)
+    monkeypatch.setattr(azure.identity, "DefaultAzureCredential", forbidden)
+    credential = Mock()
+    credential.get_token.return_value = SimpleNamespace(token="PRIVATE-ACCESS-TOKEN")
+    factory = Mock(return_value=credential)
+    monkeypatch.setitem(sys.modules, "azure_credential", SimpleNamespace(get_credential=factory))
+    # auth imports the same evaluator directory as execution; undo its path change after each test.
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    def respond(request, timeout):
+        assert request.get_method() == "GET" and timeout == 45
+        assert request.get_header("Authorization") == "Bearer PRIVATE-ACCESS-TOKEN"
+        assert json.loads(receipt.read_text())["authentication"] == "not_yet_checked"
+        payload = ({"id": asset, "properties": {"provisioningState": "Succeeded"}}
+                   if request.full_url.startswith("https://management.azure.com/") else {"value": []})
+        return io.BytesIO(json.dumps(payload).encode())
+    opener = SimpleNamespace(open=Mock(side_effect=respond))
+    builder = Mock(return_value=opener)
+    monkeypatch.setattr(subject, "build_opener", builder)
+    return SimpleNamespace(repo=repo, out=out, path=path, receipt=receipt, asset=asset,
+                           credential=credential, factory=factory, opener=opener, builder=builder,
+                           process=process, environment=environment, respond=respond)
+
+
+def assert_auth_unverified(case):
+    receipt = json.loads(case.receipt.read_text())
+    assert receipt["authentication"] == "not_yet_checked"
+    assert "assets_metadata_verified" not in receipt
+    assert "asset_file_contents_verified" not in receipt
+
+
+@pytest.mark.parametrize("host", ["token.actions.githubusercontent.com", "vstoken.actions.githubusercontent.com",
+                                 "token.actions.githubusercontent.com:443", "foo.bar.actions.githubusercontent.com"])
+def test_actions_oidc_success_no_subprocess(oidc_auth, monkeypatch, capsys, host):
+    case = oidc_auth
+    monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_URL", f"https://{host}/token?opaque=PRIVATE-URL")
+    subject.auth(case.repo, case.out, case.path)
+    case.factory.assert_called_once_with()
+    case.process.assert_not_called()
+    case.credential.close.assert_called_once_with()
+    assert [call.args[0] for call in case.credential.get_token.call_args_list] == [
+        "https://discovery.azure.com/.default", "https://management.azure.com/.default"]
+    urls = [call.args[0].full_url for call in case.opener.open.call_args_list]
+    assert "/projects/weekly-agent-svc-test/agents?api-version=" in urls[0]
+    assert urls[1].startswith(f"https://management.azure.com{case.asset}?api-version=")
+    assert isinstance(case.builder.call_args.args[0], subject.NoRedirect)
+    receipt = json.loads(case.receipt.read_text())
+    assert receipt["authentication"] == "github_oidc_read_verified"
+    assert receipt["assets_metadata_verified"] is True
+    assert receipt["asset_file_contents_verified"] is False
+    captured = capsys.readouterr()
+    assert "PRIVATE-" not in captured.out + captured.err + case.receipt.read_text()
+
+
+@pytest.mark.parametrize("key", ["AZURE_CLIENT_ID", "AZURE_TENANT_ID",
+                               "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN"])
+@pytest.mark.parametrize("value", [None, "", "  "])
+def test_actions_missing_oidc_config_never_uses_factory_or_cli(oidc_auth, monkeypatch, key, value):
+    case = oidc_auth
+    if value is None:
+        monkeypatch.delenv(key)
+    else:
+        monkeypatch.setenv(key, value)
+    with pytest.raises(ValueError, match="complete GitHub Actions OIDC configuration"):
+        subject.auth(case.repo, case.out, case.path)
+    case.factory.assert_not_called()
+    case.process.assert_not_called()
+    case.builder.assert_not_called()
+    assert_auth_unverified(case)
+
+
+@pytest.mark.parametrize("key", ["AZURE_CLIENT_ID", "AZURE_TENANT_ID"])
+@pytest.mark.parametrize("value", ["not-a-uuid", "1" * 32, "{11111111-1111-1111-1111-111111111111}"])
+def test_actions_oidc_requires_uuid_identity(oidc_auth, monkeypatch, key, value):
+    case = oidc_auth
+    monkeypatch.setenv(key, value)
+    with pytest.raises(ValueError, match="must be UUIDs"):
+        subject.auth(case.repo, case.out, case.path)
+    case.factory.assert_not_called()
+    case.process.assert_not_called()
+    assert_auth_unverified(case)
+
+
+@pytest.mark.parametrize("url", [
+    "http://token.actions.githubusercontent.com/token", "file:///token", "https://example.com/token",
+    "https://actions.githubusercontent.com/token", "https://evilactions.githubusercontent.com/token",
+    "https://token.actions.githubusercontent.com.evil.example/token",
+    "https://token.actions.githubusercontent.com@evil.example/token",
+    "https://user@token.actions.githubusercontent.com/token", "https://127.0.0.1/token",
+    "https://token.actions.githubusercontent.com:444/token", "https://token.actions.githubusercontent.com:/token",
+    "https://token.actions.githubusercontent.com./token", "https://bad..actions.githubusercontent.com/token",
+    "https://-bad.actions.githubusercontent.com/token", "https://bad_.actions.githubusercontent.com/token",
+    "https://token.actions.githubusercontent.com\\@evil.example/token", "https://[broken/token",
+    " https://token.actions.githubusercontent.com/token", "https://token.actions.githubuser\ncontent.com/token",
+    "https://token.actions.githubusercontent.com/token#fragment",
+])
+def test_actions_rejects_oidc_url_before_factory(oidc_auth, monkeypatch, capsys, url):
+    case = oidc_auth
+    monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_URL", url)
+    with pytest.raises(ValueError, match="HTTPS GitHub Actions token host") as error:
+        subject.auth(case.repo, case.out, case.path)
+    case.factory.assert_not_called()
+    case.process.assert_not_called()
+    case.builder.assert_not_called()
+    captured = capsys.readouterr()
+    assert url not in str(error.value) + captured.out + captured.err + case.receipt.read_text()
+    assert_auth_unverified(case)
+
+
+@pytest.mark.parametrize("status", [401, 403])
+@pytest.mark.parametrize("denied_read", [1, 2])
+def test_actions_denied_api_closes_credential_without_success_receipt(oidc_auth, status, denied_read):
+    case = oidc_auth
+    # Reauthentication must also invalidate any previous successful receipt.
+    case.receipt.write_text(json.dumps({"status": "passed", "authentication": "github_oidc_read_verified",
+                                       "assets_metadata_verified": True, "asset_file_contents_verified": False}))
+    def denied(request, timeout):
+        if case.opener.open.call_count == denied_read:
+            raise HTTPError(request.full_url, status, "denied", {}, None)
+        return case.respond(request, timeout)
+    case.opener.open.side_effect = denied
+    with pytest.raises(HTTPError):
+        subject.auth(case.repo, case.out, case.path)
+    assert case.opener.open.call_count == denied_read
+    case.factory.assert_called_once_with()
+    case.process.assert_not_called()
+    case.credential.close.assert_called_once_with()
+    assert_auth_unverified(case)
+
+
+@pytest.mark.parametrize("failure", ["token", "opener", "redirect", "asset_id", "asset_state", "asset_subscription"])
+def test_actions_auth_failure_cleanup_and_asset_guards(oidc_auth, failure):
+    case = oidc_auth
+    if failure == "token":
+        case.credential.get_token.side_effect = ValueError("token denied")
+    elif failure == "opener":
+        case.builder.side_effect = ValueError("opener failed")
+    elif failure == "asset_subscription":
+        case.path.write_text(yaml.safe_dump({"assets": {"example.fasta": case.asset.replace("11111111", "99999999")}}))
+    else:
+        def response(request, timeout):
+            if failure == "redirect":
+                return case.builder.call_args.args[0].redirect_request(request, None, 302, "Found", {}, "https://example.com")
+            if "management.azure.com" in request.full_url:
+                return io.BytesIO(json.dumps({"id": "wrong" if failure == "asset_id" else case.asset,
+                    "properties": {"provisioningState": "Failed" if failure == "asset_state" else "Succeeded"}}).encode())
+            return case.respond(request, timeout)
+        case.opener.open.side_effect = response
+    with pytest.raises(ValueError):
+        subject.auth(case.repo, case.out, case.path)
+    case.credential.close.assert_called_once_with()
+    case.process.assert_not_called()
+    assert_auth_unverified(case)
+
+
+@pytest.mark.parametrize("failure", ["gate", "endpoint", "assets"])
+def test_actions_preserves_precredential_gates(oidc_auth, monkeypatch, failure):
+    case = oidc_auth
+    if failure == "gate":
+        case.receipt.write_text('{"status":"blocked"}')
+    elif failure == "endpoint":
+        monkeypatch.setenv("WORKSPACE_API_URL", "https://example.com")
+    else:
+        case.path.write_text("assets: {}\n")
+    with pytest.raises(ValueError):
+        subject.auth(case.repo, case.out, case.path)
+    case.factory.assert_not_called()
+    case.process.assert_not_called()
+    case.builder.assert_not_called()
+
+
+def test_actions_uses_real_shared_factory_with_mock_sdk(oidc_auth, monkeypatch):
+    import azure.identity
+    case = oidc_auth
+    monkeypatch.delitem(sys.modules, "azure_credential")
+    constructor = Mock(return_value=case.credential)
+    monkeypatch.setattr(azure.identity, "ClientAssertionCredential", constructor)
+    subject.auth(case.repo, case.out, case.path)
+    import azure_credential
+    assert Path(azure_credential.__file__).resolve() == ROOT / "utilities/agent-evaluation/evaluators/azure_credential.py"
+    constructor.assert_called_once_with(tenant_id=case.environment["AZURE_TENANT_ID"],
+        client_id=case.environment["AZURE_CLIENT_ID"], func=azure_credential._fetch_github_oidc_token)
+    case.credential.close.assert_called_once_with()
+    case.process.assert_not_called()
+
+
+def test_actions_main_sanitizes_credential_failure(oidc_auth, monkeypatch, capsys):
+    case = oidc_auth
+    case.credential.get_token.side_effect = RuntimeError(
+        case.environment["ACTIONS_ID_TOKEN_REQUEST_URL"] + case.environment["ACTIONS_ID_TOKEN_REQUEST_TOKEN"])
+    monkeypatch.setattr(sys, "argv", ["preflight", "auth", "--repo-root", str(case.repo),
+        "--output-dir", str(case.out), "--input-assets", str(case.path)])
+    assert subject.main() == 1
+    case.credential.close.assert_called_once_with()
+    captured = capsys.readouterr()
+    failure = (case.out / "workflow-auth-failure.json").read_text()
+    assert json.loads(failure)["status"] == "blocked"
+    assert "PRIVATE-" not in captured.out + captured.err + failure + case.receipt.read_text()
+    assert_auth_unverified(case)
 
 
 def test_untracked_or_shallow_history_is_unknown(tmp_path):

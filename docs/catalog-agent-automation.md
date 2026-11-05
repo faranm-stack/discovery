@@ -62,10 +62,17 @@ acquisition contract, not arbitrary future main.
 5. Require explicit budget/lanes, private evidence approval and future CLI
    `--run-label` support. This branch includes tested run-label support with
    service-safe short names. Full run identities remain in the receipts.
-6. Only then check **existing** Azure CLI authentication, selected subscription
-   and tenant, GET the actual project agents route (not the misleading project
-   metadata route), and GET each required asset's ARM metadata. Require matching
-   IDs and successful provisioning; never log tokens or response bodies.
+6. Only then select authentication: in GitHub Actions, validate the complete
+   OIDC configuration and use the existing renewable SDK credential factory;
+   locally, check **existing** Azure CLI authentication, selected subscription
+   and tenant without signing in or switching accounts. GET the actual project
+   agents route (not the misleading project metadata route), and GET each required
+   asset's ARM metadata. Preserve the workspace endpoint allowlist, reject redirects
+   on these authenticated reads, and require matching asset subscription/IDs and
+   successful provisioning. Always close the credential; never log tokens,
+   the OIDC request URL, or response bodies. Record `github_oidc_read_verified`
+   or `existing_cli_read_verified` only after all reads succeed; a failed recheck
+   cannot retain a previous successful authentication receipt.
    Metadata success does **not** prove the expected files/bytes are in the asset;
    fixture owners must approve staging/content receipts and licensing beforehand.
 
@@ -75,17 +82,33 @@ and values are existing storage-asset ARM IDs. Folder assets may satisfy multipl
 keys. All required mappings are checked, including agents in unapproved lanes;
 partial-lane approval must not be presented as complete coverage.
 
-### Azure login publication blocker
+### Direct SDK OIDC and remaining authentication blockers
 
-Inspection found only a **floating** `azure/login@v2` in the utility evaluation
-workflow, no existing SHA-pinned Azure login action. No hash was invented or
-floating action copied. Consequently these workflows do **not** sign in. The
-auth gate can reuse an existing authorized CLI context, but an ordinary fresh
-hosted runner has none and must fail closed. Before live publication, the owner
-must supply/review an authentic pinned login action and existing OIDC federation
-for the protected environment. Add that reviewed login step after the source /
-input gate and before the read-only auth check. `id-token: write` alone is not
-authentication. No subscription/client/tenant values are guessed or roles granted.
+An Azure login action or `az login` is **not required** for the GitHub Actions
+path. Preflight and execution use the existing
+[credential factory](../utilities/agent-evaluation/evaluators/azure_credential.py),
+which creates an SDK `ClientAssertionCredential` with a callback that requests a
+fresh GitHub OIDC assertion when needed, including on renewal or a new audience.
+This repair does not edit that shared factory or exercise real token exchange.
+
+With `GITHUB_ACTIONS=true`, preflight requires all of `AZURE_CLIENT_ID`,
+`AZURE_TENANT_ID`, `ACTIONS_ID_TOKEN_REQUEST_URL`, and
+`ACTIONS_ID_TOKEN_REQUEST_TOKEN` before calling the factory. Client and tenant
+must be UUIDs. The request URL must use HTTPS and a narrowly validated hostname
+under `actions.githubusercontent.com` (including `token.actions.githubusercontent.com`);
+userinfo, lookalike domains, non-443 ports, malformed DNS labels, whitespace and
+fragments are rejected. GitHub supplies the request URL/token to eligible jobs;
+do not copy them into logs or evidence. Missing or invalid CI configuration fails
+closed: **no Azure CLI or default-credential fallback**, no login attempt.
+Local runs retain strict CLI subscription/tenant checks and do not use the factory.
+
+Direct SDK support does **not** establish authorization or enable live execution.
+The owner must still verify existing federated trust for the repository/protected
+environment and token audience, approved identity/tenant/subscription values,
+and permissions for the Discovery project and required ARM assets.
+`id-token: write` alone grants neither federated trust nor Azure resource access.
+Private evidence approval, protected-environment review, source/input gates and
+bounded live opt-ins remain blockers. No permissions, trust or settings are changed.
 
 ## Run identity and failure artifacts
 
@@ -210,6 +233,29 @@ and memory, real grader invocation, unknown owners and no false eviction, and
 workflow notification/privacy guards. These do not prove cloud execution or
 branch/environment protection settings.
 
+Authentication tests mock credentials and HTTP responses, prohibit real network,
+and cover Actions success without subprocesses, missing/invalid OIDC configuration
+before factory use, denied project/asset reads without success receipts, credential
+cleanup, secret-safe failures, and the unchanged local CLI target checks. Shared
+factory wiring is checked with a mocked SDK constructor; real assertion renewal,
+federated trust and resource authorization remain unverified.
+
+Local validation receipt (2026-11-04): branch
+`automation/catalog-validation-20261104`, base commit
+`8ee511951feaa69f8602892715b26dd4a24ac158`, plus this uncommitted scoped patch.
+Using the existing sibling discovery-harness `.venv-smoke/Scripts/python.exe`
+with `-B -m pytest` and `-p no:cacheprovider`:
+
+- Baseline preflight/public-report suites: **229 passed**.
+- Updated preflight suite: **98 passed**; public-report suite: **190 passed**;
+   **288 passed total**, no skips or failures.
+- Diff scope: exactly the four permitted files. Parsed workflow comparison,
+   excluding step display names, is identical to the base; source/input/redirect
+   guards are AST-identical, and shared credential factory bytes are unchanged
+   after line-ending normalization. `git diff --check` passes.
+- No real network, credentials, login, live workloads, commits, pushes or
+   GitHub/Azure setting changes. This is mocked component proof, not live proof.
+
 Publication/settings blockers (owner/parent work):
 
 1. Publish all required parent scripts/dependencies/fixtures with this reviewed
@@ -220,8 +266,9 @@ Publication/settings blockers (owner/parent work):
    overlays through a distinct content-verification contract; 98 is not 121.
 4. Stage and verify fixture contents, connector/license prerequisites and input
    map; metadata existence alone is not a usable-input receipt.
-5. Supply a genuine reviewed SHA-pinned Azure login and existing protected OIDC
-   configuration. Verify actual target authorization without granting new roles.
+5. Verify existing protected-environment OIDC federated trust and actual target
+   permissions for direct SDK authentication, without granting new roles. No
+   mandatory Azure login step is needed; mocked local tests do not prove live access.
 6. Owner verifies private evidence/retention, protected environment reviewers,
    trusted default branch and repository variables, then explicitly decides
    whether to enable live, scheduled live, automated reports and notifications.

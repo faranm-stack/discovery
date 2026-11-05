@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 import yaml
@@ -161,33 +162,76 @@ class NoRedirect(HTTPRedirectHandler):
         raise ValueError("authenticated redirect refused")
 
 
+def validate_actions_oidc() -> None:
+    """Fail closed before the shared factory can select a fallback credential."""
+    keys = ("AZURE_CLIENT_ID", "AZURE_TENANT_ID",
+            "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+    if any(not os.getenv(key, "").strip() for key in keys):
+        raise ValueError("complete GitHub Actions OIDC configuration required; no CLI fallback")
+    for key in keys[:2]:
+        if not re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", os.environ[key]):
+            raise ValueError("GitHub Actions OIDC client and tenant must be UUIDs")
+    raw = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"]
+    # Match the entire authority, not a substring: no userinfo, lookalike suffix,
+    # arbitrary port, IP literal, empty DNS label or URL-parser whitespace tricks.
+    label = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+    try:
+        url = urlsplit(raw)
+        valid = (not re.search(r"[\s\x00-\x1f\x7f]", raw)
+                 and url.scheme == "https" and not url.fragment
+                 and re.fullmatch(rf"(?:{label}\.)+actions\.githubusercontent\.com(?::443)?",
+                                  url.netloc, re.IGNORECASE))
+    except ValueError:
+        valid = False
+    if not valid:
+        # Never include the request URL or token in errors or receipts.
+        raise ValueError("GitHub Actions OIDC requires an HTTPS GitHub Actions token host")
+
+
 def auth(repo: Path, out: Path, assets_path: Path | None) -> None:
     receipt = json.loads((out / "workflow-preflight.json").read_text(encoding="utf-8"))
     if receipt.get("status") != "passed":
         raise ValueError("source/input gate must pass before credential use")
-    from azure.identity import AzureCliCredential
+    # A failed recheck must not retain an earlier authentication success receipt.
+    receipt["authentication"] = "not_yet_checked"
+    receipt.pop("assets_metadata_verified", None)
+    receipt.pop("asset_file_contents_verified", None)
+    save_json(out / "workflow-preflight.json", receipt)
     from run_catalog_smoke import API_VERSION, validate_endpoint
     import uuid
 
+    in_actions = os.getenv("GITHUB_ACTIONS") == "true"
+    if in_actions:
+        validate_actions_oidc()
     endpoint = validate_endpoint(os.getenv("WORKSPACE_API_URL", ""))
     subscription = str(uuid.UUID(os.environ["AZURE_SUBSCRIPTION_ID"]))
     for key in ("AZURE_CLIENT_ID", "AZURE_TENANT_ID", "AZURE_SUBSCRIPTION_ID", "RESOURCE_GROUP", "MODEL"):
         if not os.getenv(key):
             raise ValueError("required Azure/workspace configuration missing")
-    account = subprocess.run(["az", "account", "show", "--output", "json"],
-                             capture_output=True, text=True, timeout=30, check=False)
-    if account.returncode:
-        raise ValueError("existing Azure CLI authentication required; no sign-in attempted")
-    identity = json.loads(account.stdout)
-    if (identity.get("id", "").lower() != subscription.lower() or
-            identity.get("tenantId", "").lower() != os.environ["AZURE_TENANT_ID"].lower()):
-        raise ValueError("existing Azure account target differs; no account switch permitted")
-    credential = AzureCliCredential(tenant_id=os.environ["AZURE_TENANT_ID"], subscription=subscription)
-    opener = build_opener(NoRedirect())
     plan = json.loads((out / "catalog-plan.json").read_text(encoding="utf-8"))
     assets = required_assets(repo, plan, assets_path)
+    if in_actions:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "utilities" / "agent-evaluation" / "evaluators"))
+        from azure_credential import get_credential
+
+        credential = get_credential()
+        auth_method = "github_oidc_read_verified"
+    else:
+        from azure.identity import AzureCliCredential
+
+        account = subprocess.run(["az", "account", "show", "--output", "json"],
+                                 capture_output=True, text=True, timeout=30, check=False)
+        if account.returncode:
+            raise ValueError("existing Azure CLI authentication required; no sign-in attempted")
+        identity = json.loads(account.stdout)
+        if (identity.get("id", "").lower() != subscription.lower() or
+                identity.get("tenantId", "").lower() != os.environ["AZURE_TENANT_ID"].lower()):
+            raise ValueError("existing Azure account target differs; no account switch permitted")
+        credential = AzureCliCredential(tenant_id=os.environ["AZURE_TENANT_ID"], subscription=subscription)
+        auth_method = "existing_cli_read_verified"
     try:
-        # Existing authorized CLI identity only: never sign in or switch accounts.
+        opener = build_opener(NoRedirect())
+        # Read-only checks using the selected identity; never sign in or switch accounts.
         for resource, url, asset_id in [
             ("https://discovery.azure.com/.default", endpoint +
              f"/projects/weekly-agent-svc-test/agents?api-version={API_VERSION}", None),
@@ -205,7 +249,7 @@ def auth(repo: Path, out: Path, assets_path: Path | None) -> None:
                 raise ValueError("asset readiness not verified")
     finally:
         credential.close()
-    receipt["authentication"] = "existing_cli_read_verified"
+    receipt["authentication"] = auth_method
     receipt["assets_metadata_verified"] = True
     receipt["asset_file_contents_verified"] = False
     save_json(out / "workflow-preflight.json", receipt)

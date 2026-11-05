@@ -51,7 +51,11 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r .github/requirements-ci.txt
       - name: Validate offline workflow contracts
-        run: python -m pytest .github/tests/test_catalog_workflow_preflight.py .github/tests/test_catalog_public_report.py -q
+        run: >-
+          python -m pytest .github/tests/test_catalog_workflow_preflight.py
+          .github/tests/test_queue_reconciliation.py .github/tests/test_confirmation_gates.py
+          .github/tests/test_catalog_sweep.py .github/tests/test_run_catalog_smoke.py
+          .github/tests/test_catalog_public_report.py -q
       - name: Record offline run identity
         run: python .github/scripts/catalog_workflow_preflight.py prepare --output-dir "$RUNNER_TEMP/catalog-plan"
       - name: Produce offline plan (no upstream calls or Azure authentication)
@@ -140,11 +144,11 @@ jobs:
         run: |
           python .github/scripts/catalog_workflow_preflight.py gate \
             --output-dir "$RUNNER_TEMP/catalog-sweep" --input-assets "$RUNNER_TEMP/catalog-input-assets.yaml"
-      # No SHA-pinned azure/login exists in this repository. Do not invent a hash,
-      # use a floating action, start sign-in or grant roles. Existing authorized CLI
-      # credentials are checked below; hosted runners block until an approved,
-      # repository-verified pinned login step is supplied at publication.
-      - name: Verify existing Azure authentication and staged asset metadata (GET only)
+      # Direct SDK OIDC uses the existing renewable credential factory; no
+      # azure/login or az login step is required. Missing/invalid OIDC config
+      # fails closed without CLI fallback. Federated trust, target permissions,
+      # private evidence and protected-environment approvals remain required.
+      - name: Verify GitHub OIDC authentication and staged asset metadata (GET only)
         run: |
           python .github/scripts/catalog_workflow_preflight.py auth \
             --output-dir "$RUNNER_TEMP/catalog-sweep" --input-assets "$RUNNER_TEMP/catalog-input-assets.yaml"

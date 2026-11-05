@@ -31,7 +31,7 @@ from plan_catalog_smoke import LANE_CONCURRENCY, LANES, build_plan
 from run_catalog_smoke import (
     API_VERSION, SCOPE, TERMINAL, SmokeError, _matches_tool, assess_roundtrip,
     investigation_name, revision, run_live, validate_endpoint,
-    pending_confirmations,
+    pending_confirmations, OPERATION_FETCH_LIMIT, tool_call_observations, linked_operations,
 )
 from smoke_contract import CONTRACT_ID
 from smoke_diagnostics import write_diagnostics
@@ -107,15 +107,99 @@ class SweepStore:
         return data
 
 
-async def run_queue(cases, worker, *, concurrency=2, continue_independent=False, held_cases=None):
-    if not 1 <= concurrency <= 4:
+async def run_queue(cases, worker, *, concurrency=2, continue_independent=False, held_cases=None,
+                    reconcile=None, max_reconcile_checks=0, reconcile_interval=30,
+                    reconcile_timeout=60, clock=time.monotonic, sleep=asyncio.sleep):
+    """Supervise without resubmitting. Callback receives held cases and returns rows.
+
+    Checks are a queue-wide budget, including failures/timeouts. Only a verified
+    passed/failed/blocked row with literal remote_may_be_running=False releases a
+    reservation. Defaults disable supervision; continuation still needs opt-in.
+    Returned rows include observed old cases as well as all requested new cases.
+    """
+    if type(concurrency) is not int or not 1 <= concurrency <= 4:
         raise ValueError("Global concurrency must be 1..4")
-    pending = list(cases)
-    held = list(held_cases or [])
+    if (type(max_reconcile_checks) is not int or not 0 <= max_reconcile_checks <= 10
+            or not 5 <= reconcile_interval <= 300):
+        raise ValueError("Use reconcile checks0..10 and interval5..300")
+    if not 0 < reconcile_timeout <= 900:
+        raise ValueError("Reconciliation timeout must be >0 and <=900 seconds")
+    held = list({case["catalog_agent"]: case for case in held_cases or []}.values())
+    requested = {case["catalog_agent"]: case for case in cases}
+    held_names = {case["catalog_agent"] for case in held}
+    pending = [case for name, case in requested.items() if name not in held_names]
     active = {}
-    results = {}
-    stopped = False
-    while pending or active:
+    results = {case["catalog_agent"]: {"catalog_agent": case["catalog_agent"], "status": "uncertain", "remote_may_be_running": True,
+                      "reason": "Existing case retains its reservation; no resubmission."}
+               for case in held}
+    stopped = any(access_denied(case) for case in held) or bool(held and not continue_independent)
+    checks = 0
+    next_check = clock() + reconcile_interval
+
+    def can_check():
+        return bool(held and reconcile and continue_independent and not stopped
+                    and checks < max_reconcile_checks)
+
+    def collect(finished):
+        nonlocal stopped
+        for task in finished:
+            case = active.pop(task)
+            result = task.result()
+            results[case["catalog_agent"]] = {**result, "catalog_agent": case["catalog_agent"]}
+            if access_denied(result):
+                results[case["catalog_agent"]]["stop_new_work"] = True
+                stopped = True
+            if result.get("status") == "uncertain" or result.get("remote_may_be_running") is True:
+                held.append(case)
+                if not continue_independent:
+                    stopped = True
+
+    while pending or active or can_check():
+        # A denial from a worker completing during reconciliation must be consumed
+        # before dispatching anything else.
+        collect([task for task in active if task.done()])
+        if can_check() and (clock() >= next_check or (not active and checks == 0)):
+            checks += 1
+            try:
+                rows = await asyncio.wait_for(reconcile(copy.deepcopy(held)), timeout=reconcile_timeout)
+                if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+                    raise ValueError("Invalid reconciliation rows")
+                names = [row.get("catalog_agent") for row in rows]
+                if (not all(isinstance(name, str) and name in {case["catalog_agent"] for case in held}
+                            for name in names) or len(set(names)) != len(names)):
+                    raise ValueError("Ambiguous reconciliation identities")
+            except Exception as exc:
+                code = exc.code if isinstance(exc, SmokeError) else type(exc).__name__
+                rows = [{"catalog_agent": case["catalog_agent"], "status": "uncertain",
+                         "remote_may_be_running": True, "reconciliation_error": code,
+                         "stop_new_work": code in {"http_401", "http_403"},
+                         "reason": f"Reconciliation failed ({code}); reservation retained."} for case in held]
+            decisions = {row["catalog_agent"]: row for row in rows}
+            retained = []
+            for case in held:
+                name = case["catalog_agent"]
+                row = decisions.get(name)
+                if row is None:
+                    retained.append(case)
+                    continue
+                if access_denied(row):
+                    row = {**row, "stop_new_work": True}
+                    stopped = True
+                verified = (row.get("status") in {"passed", "failed", "blocked"}
+                            and row.get("remote_may_be_running") is False
+                            and not row.get("error") and not row.get("reconciliation_error")
+                            and not access_denied(row))
+                updated = {**results.get(name, {}), **row, "reconcile_checks": checks}
+                if verified:
+                    updated.pop("reconciliation_error", None)
+                    updated.pop("error", None)
+                if not verified:
+                    retained.append(case)
+                    updated.update(status="uncertain", remote_may_be_running=True)
+                results[name] = updated
+            held = retained
+            next_check = clock() + reconcile_interval
+            continue
         occupied = list(active.values()) + held
         while not stopped and pending and len(occupied) < concurrency:
             counts = Counter(case["lane"] for case in occupied)
@@ -127,48 +211,43 @@ async def run_queue(cases, worker, *, concurrency=2, continue_independent=False,
             active[asyncio.create_task(worker(case))] = case
             occupied.append(case)
         if not active:
+            if can_check():
+                await sleep(max(0, next_check - clock()))
+                continue
             holders = ", ".join(case["catalog_agent"] for case in held)
             for case in pending:
                 results[case["catalog_agent"]] = {
                     "catalog_agent": case["catalog_agent"], "status": "not_run",
                     "reason": ("Stopped after denied access or unresolved work" if stopped else
-                               f"Capacity reserved for unresolved existing cases: {holders}"),
+                               f"Capacity reserved for unresolved existing cases: {holders}; "
+                               f"reconciliation checks {checks}/{max_reconcile_checks}"),
                 }
             break
-        finished, _ = await asyncio.wait(active, return_when=asyncio.FIRST_COMPLETED)
-        for task in finished:
-            case = active.pop(task)
-            result = task.result()
-            results[case["catalog_agent"]] = {"catalog_agent": case["catalog_agent"], **result}
-            if result.get("stop_new_work"):
-                stopped = True
-            if result.get("status") == "uncertain":
-                if continue_independent:
-                    # The unresolved agent retains both global and lane capacity.
-                    held.append(case)
-                else:
-                    stopped = True
-    return [results[case["catalog_agent"]] for case in cases]
+        timer = asyncio.create_task(sleep(max(0, next_check - clock()))) if can_check() else None
+        try:
+            finished, _ = await asyncio.wait([*active, *([timer] if timer else [])],
+                                             return_when=asyncio.FIRST_COMPLETED)
+            collect([task for task in finished if task is not timer])
+        finally:
+            if timer:
+                timer.cancel()
+                await asyncio.gather(timer, return_exceptions=True)
+    return [results[name] for name in dict.fromkeys([*requested, *results])]
+
+
+def access_denied(row):
+    """Denials remain a stop signal even if a callback omitted its boolean flag."""
+    error = row.get("error")
+    code = error.get("code") if isinstance(error, dict) else error
+    return bool(row.get("stop_new_work") or any(
+        value in ("http_401", "http_403")
+        for value in (code, row.get("reason"), row.get("reconciliation_error"))))
 
 
 SYNC_PLATFORM_HELPERS = {
     "GetResourceContext", "GetNodePoolContext", "PreviewResource",
     "WriteResource", "ShareResource", "UpdateResourceDetails",
 }
-
-
-def linked_operations(response):
-    """Include all service-supplied operation links, not just the expected tool."""
-    extensions = (response.get("discoveryProperties") or {}).get("itemExtensions") or {}
-    links = {}
-    for item_id, extension in extensions.items():
-        if not isinstance(extension, dict) or not extension.get("supercomputerOperationId"):
-            continue
-        operation_id = extension["supercomputerOperationId"]
-        if not isinstance(operation_id, str) or not re.fullmatch(r"[a-fA-F0-9]{32}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}", operation_id):
-            raise ValueError("Invalid service operation identifier")
-        links[item_id] = operation_id
-    return links
 
 
 def _nodepool_rejected_before_submission(call, response, logs):
@@ -198,6 +277,11 @@ def _nodepool_rejected_before_submission(call, response, logs):
 
 
 def classify_execution(report, response, operations, *, validation_logs=None):
+    return {**tool_call_observations(response),
+            **_classify_execution(report, response, operations, validation_logs=validation_logs)}
+
+
+def _classify_execution(report, response, operations, *, validation_logs=None):
     """Separate failed coverage from possible in-flight work before queue resume.
 
     A completed response containing only completed synchronous platform helpers
@@ -487,18 +571,24 @@ class CatalogHttp:
         return values
 
 
-async def reconcile_sweep(args, plan, store):
+async def reconcile_sweep(args, plan, store, *, cases=None):
     """Read-only remote reconciliation; never submit, cancel, deploy, or retry."""
     results = []
+    denied = False
     async with CatalogHttp(args.workspace_api_url) as client:
-        for case in plan["cases"]:
+        for case in plan["cases"] if cases is None else cases:
             name = case["catalog_agent"]
             folder = store._folder(name)
             if not folder.exists():
                 results.append({"catalog_agent": name, "status": "not_run"})
                 continue
             previous = store.read(name)
-            if previous.get("status") != "uncertain":
+            if denied:
+                updated = {**previous, "stop_new_work": True}
+                store.save(name, updated)
+                results.append({"catalog_agent": name, **updated})
+                continue
+            if previous.get("status") != "uncertain" and previous.get("remote_may_be_running") is not True:
                 results.append({"catalog_agent": name, **previous})
                 continue
             summary_path = folder / "summary.json"
@@ -510,51 +600,89 @@ async def reconcile_sweep(args, plan, store):
                     or not report.get("conversation_id") or not report.get("response_id")):
                 results.append({"catalog_agent": name, **previous})
                 continue
-            stamp = uuid.uuid4().hex[:12]
-            evidence = folder / "reconciliation" / stamp
-            response_url = (f"{args.workspace_api_url}/conversations/{quote(report['conversation_id'], safe='')}"
-                            f"/openai/v1/responses/{quote(report['response_id'], safe='')}")
-            response = await client.request("GET", response_url)
-            save_json(evidence / "response.json", response)
-            ids = set(linked_operations(response).values())
-            if len(ids) > 16:
-                results.append({"catalog_agent": name, **previous, "reason": "Excessive operation links require review"})
-                continue
-            operations = {}
-            for operation_id in sorted(ids):
-                url = (f"{args.workspace_api_url}/tools/projects/{quote(args.project, safe='')}/operations/"
-                       f"{operation_id}?api-version={API_VERSION}")
-                operations[operation_id] = await client.request("GET", url)
-            save_json(evidence / "operations.json", operations)
-            validation_logs = None
-            validation_path = folder / "error-detail-evidence" / "error-detail.json"
-            validation_manifest = validation_path.parent / "manifest.json"
-            if validation_path.is_file() and validation_manifest.is_file():
-                records = json.loads(validation_manifest.read_text(encoding="utf-8"))
-                digest = hashlib.sha256(validation_path.read_bytes()).hexdigest()
-                if any(record.get("name") == "error-detail" and record.get("http_status") == 200
-                       and record.get("body_sha256") == digest for record in records):
-                    validation_logs = json.loads(validation_path.read_text(encoding="utf-8"))
-            resolved = classify_execution(report, response, operations, validation_logs=validation_logs)
-            save_json(evidence / "decision.json", {
-                "previous_case": previous, "decision": resolved,
-                "checked_at": datetime.now(timezone.utc).isoformat(),
-                "response_sha256": hashlib.sha256((evidence / "response.json").read_bytes()).hexdigest(),
-                "validation_log_sha256": hashlib.sha256(validation_path.read_bytes()).hexdigest() if validation_logs is not None else None,
-                "new_submissions": 0,
-            })
-            updated = {**previous, **resolved, "reconciliation": str(evidence.relative_to(args.output_dir)),
-                       "original_reason": previous.get("reason"), "usage": response.get("usage", previous.get("usage"))}
+            try:
+                stamp = uuid.uuid4().hex[:12]
+                evidence = folder / "reconciliation" / stamp
+                response_url = (f"{args.workspace_api_url}/conversations/{quote(report['conversation_id'], safe='')}"
+                                f"/openai/v1/responses/{quote(report['response_id'], safe='')}")
+                response = await client.request("GET", response_url)
+                save_json(evidence / "response.json", response)
+                if response.get("id") != report["response_id"]:
+                    raise ValueError("response_id_not_verified")
+                waiting = bool(pending_confirmations(response))
+                observations = tool_call_observations(response)
+                previous = {**previous, **observations, "human_approval_pending": waiting}
+                report.update(human_approval_pending=waiting, **observations,
+                              phase="reconciliation", verdict="inconclusive",
+                              tool_roundtrip_status="inconclusive",
+                              remote_may_be_running=True, server_may_be_running=True,
+                              reason="confirmation_requires_human_review" if waiting else "remote_work_not_resolved",
+                              response_status=response.get("status"),
+                              server_terminal_observed=response.get("status") in TERMINAL)
+                if not waiting:
+                    (folder / "approval-needed.json").unlink(missing_ok=True)
+                save_json(summary_path, report)
+                ids = set(linked_operations(response).values())
+                if len(ids) > OPERATION_FETCH_LIMIT:
+                    raise SmokeError("multiple_operations", "Excessive operation links require review")
+                operations = {}
+                for operation_id in sorted(ids):
+                    url = (f"{args.workspace_api_url}/tools/projects/{quote(args.project, safe='')}/operations/"
+                           f"{operation_id}?api-version={API_VERSION}")
+                    operations[operation_id] = await client.request("GET", url)
+                save_json(evidence / "operations.json", operations)
+                validation_logs = None
+                validation_path = folder / "error-detail-evidence" / "error-detail.json"
+                validation_manifest = validation_path.parent / "manifest.json"
+                if validation_path.is_file() and validation_manifest.is_file():
+                    records = json.loads(validation_manifest.read_text(encoding="utf-8"))
+                    digest = hashlib.sha256(validation_path.read_bytes()).hexdigest()
+                    if any(record.get("name") == "error-detail" and record.get("http_status") == 200
+                           and record.get("body_sha256") == digest for record in records):
+                        validation_logs = json.loads(validation_path.read_text(encoding="utf-8"))
+                resolved = classify_execution(report, response, operations, validation_logs=validation_logs)
+                save_json(evidence / "decision.json", {
+                    "previous_case": previous, "decision": resolved,
+                    "checked_at": datetime.now(timezone.utc).isoformat(),
+                    "response_sha256": hashlib.sha256((evidence / "response.json").read_bytes()).hexdigest(),
+                    "validation_log_sha256": hashlib.sha256(validation_path.read_bytes()).hexdigest() if validation_logs is not None else None,
+                    "new_submissions": 0,
+                })
+                report.update(phase="reconciliation", reason=resolved["reason"],
+                              verdict="pass" if resolved["status"] == "passed" else resolved["status"],
+                              tool_roundtrip_status=resolved["tool_roundtrip"],
+                              response_status=response.get("status"),
+                              server_terminal_observed=response.get("status") in TERMINAL,
+                              remote_may_be_running=resolved["remote_may_be_running"],
+                              server_may_be_running=resolved["remote_may_be_running"],
+                              usage=response.get("usage", report.get("usage", "unknown")))
+                save_json(summary_path, report)
+                updated = {**previous, **resolved, "human_approval_pending": waiting,
+                           "reconciliation": str(evidence.relative_to(args.output_dir)),
+                           "original_reason": previous.get("reason"), "usage": report["usage"]}
+                updated.pop("reconciliation_error", None)
+            except Exception as exc:
+                code = exc.code if isinstance(exc, SmokeError) else type(exc).__name__
+                denied = code in {"http_401", "http_403"}
+                updated = {**previous, "status": "uncertain", "remote_may_be_running": True,
+                           "reconciliation_error": code, "stop_new_work": denied or access_denied(previous),
+                           "reason": f"Reconciliation failed ({code}); reservation retained."}
             store.save(name, updated)
             results.append({"catalog_agent": name, **updated})
-            print(f"{name}: reconciled {resolved['status']}; new submissions=0", flush=True)
+            print(f"{name}: reconciled {updated['status']}; new submissions=0", flush=True)
     return results
 
 
 async def execute_sweep(args, plan, store):
     prior = {case["catalog_agent"]: store.read(case["catalog_agent"])
              for case in plan["cases"] if store._folder(case["catalog_agent"]).exists()}
-    unresolved = [case for case in plan["cases"] if prior.get(case["catalog_agent"], {}).get("status") == "uncertain"]
+    unresolved = [case for case in plan["cases"]
+                  if (prior.get(case["catalog_agent"], {}).get("status") == "uncertain"
+                      or prior.get(case["catalog_agent"], {}).get("remote_may_be_running") is True)]
+    if any(access_denied(row) for row in prior.values()):
+        return [{"catalog_agent": case["catalog_agent"], **prior.get(case["catalog_agent"], {
+            "status": "not_run", "reason": "Stopped after denied access; no new work authorized.",
+        })} for case in plan["cases"]]
     if args.mode == "live" and unresolved and not args.continue_independent:
         return [{"catalog_agent": case["catalog_agent"], **prior.get(case["catalog_agent"], {
             "status": "not_run", "reason": "Existing uncertain work must be reconciled before new submissions.",
@@ -711,10 +839,11 @@ async def execute_sweep(args, plan, store):
                 # Read-only wait for still-running tool operations within the same time budget,
                 # so resolvable work does not hold queue capacity. Never resubmits or cancels.
                 deadline = invocation_start + args.timeout
-                while (decision["status"] == "uncertain" and response.get("status") in TERMINAL
+                while (decision["status"] == "uncertain" and not pending_confirmations(response)
+                       and response.get("status") in TERMINAL
                        and time.monotonic() < deadline):
                     ids = sorted(set(linked_operations(response).values()))
-                    if not ids or len(ids) > 4 or all((operations.get(op) or {}).get("status") in
+                    if not ids or len(ids) > OPERATION_FETCH_LIMIT or all((operations.get(op) or {}).get("status") in
                                                       {"Succeeded", "Failed", "Canceled"} for op in ids):
                         break  # Nothing left that could change the verdict.
                     await asyncio.sleep(15)
@@ -722,7 +851,8 @@ async def execute_sweep(args, plan, store):
                                   f"{quote(args.project, safe='')}/operations/{op}?api-version={API_VERSION}") for op in ids}
                     save_json(saved / "operations.json", operations)
                     decision = classify_execution(report, response, operations)
-                result.update(decision, usage=report.get("usage"))
+                result.update(decision, usage=report.get("usage"),
+                              human_approval_pending=bool(report.get("human_approval_pending")))
                 try:
                     write_diagnostics(saved)
                 except (ValueError, TypeError, KeyError) as exc:
@@ -746,10 +876,28 @@ async def execute_sweep(args, plan, store):
         # Completed or already-submitted cases are never claimed again. Outstanding
         # work reserves its capacity while independent cases proceed, if approved.
         pending = [case for case in plan["cases"] if case["catalog_agent"] not in prior]
+
+        async def reconcile_held(held):
+            return await reconcile_sweep(args, plan, store, cases=held)
+
         new_results = await run_queue(pending, worker, concurrency=args.concurrency,
                           continue_independent=args.continue_independent,
-                          held_cases=unresolved)
-        return [{"catalog_agent": name, **row} for name, row in prior.items()] + new_results
+                          held_cases=unresolved, reconcile=reconcile_held if args.mode == "live" else None,
+                          max_reconcile_checks=getattr(args, "reconcile_checks", 3),
+                          reconcile_interval=getattr(args, "reconcile_interval", 30))
+        # Re-read durable checkpoints (including partial reconciliation passes),
+        # then overlay queue observations. Exactly one row per planned case.
+        indexed = {case["catalog_agent"]: store.read(case["catalog_agent"])
+                   for case in plan["cases"] if store._folder(case["catalog_agent"]).exists()}
+        for row in new_results:
+            name = row["catalog_agent"]
+            indexed[name] = {**indexed.get(name, {}), **row}
+            if store._folder(name).exists():
+                # Persist supervisor timeouts/denials too, including failures before
+                # the reconciliation client could save a per-case checkpoint.
+                store.save(name, indexed[name])
+        return [{**indexed.get(case["catalog_agent"], {"status": "not_run"}),
+                 "catalog_agent": case["catalog_agent"]} for case in plan["cases"]]
 
 
 def write_report(output, plan, results, mode):
@@ -793,6 +941,10 @@ def main():
     parser.add_argument("--max-invocations", type=int, default=0)
     parser.add_argument("--deploy-missing", action="store_true")
     parser.add_argument("--continue-independent", action="store_true", help="With explicit approval, continue independent cases while unresolved jobs retain concurrency slots.")
+    parser.add_argument("--reconcile-checks", type=int, choices=range(0, 11), default=3,
+                        help="Bounded read-only checks of held cases (0 disables); requires --continue-independent.")
+    parser.add_argument("--reconcile-interval", type=int, choices=range(5, 301), default=30,
+                        help="Seconds between held-case checks; no automatic confirmation or resubmission.")
     parser.add_argument("--allow-lanes", default="cpu")
     parser.add_argument("--input-assets", type=Path, help="YAML mapping of input file names to staged storage asset ARM IDs")
     args = parser.parse_args()
