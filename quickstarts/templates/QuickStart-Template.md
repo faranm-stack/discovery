@@ -4,6 +4,10 @@
 
 Keep the same core across verticals. Replace `[Fill in]` placeholders; use **N/A** for non-applicable items, not unknowns. Conditional App/Services fields apply only to the selected path. Publish one minimal tested reference path before adding separately identified variants.
 
+## Execution flow
+
+Follow three stages: **set up and confirm readiness → execute → verify against the validated reference**. Sections 1–4 define the configuration and prerequisites; sections 5–6 provide the steps and completion checks. Sections 7–9 cover timing, troubleshooting and publication.
+
 ## 1. Recipe identity — required
 
 | Field | Value |
@@ -62,15 +66,21 @@ Record units. Claim a minimum only after validation; otherwise keep **Not valida
 
 ## 5. Setup — one reproducible reference path
 
+### Stage 1 — Set up the environment and confirm readiness
+
 Replace each scaffold with exact commands/configuration references and an observable completion check. Keep only applicable App/Services branches; mark unused steps N/A.
 
 1. **Select profile:** [Fill in: reference path, pinned configuration and required downloads/access].
 2. **Install/provision:** App—[Fill in: app and dependencies]; Services—[Fill in: applicable pools, infrastructure and container dependencies].
 3. **Deploy/configure:** [Fill in: model, agents, orchestration, tools and ACA containers; secure configuration references].
 4. **Load data:** [Fill in: sample input loading; Bookshelf ingestion/indexing if applicable; wait for index-ready condition].
-5. **Verify readiness:** [Fill in: model/tool/container health and access checks; expected results]. Then run the prompt below, validate output and record timing.
+5. **Verify readiness:** [Fill in: model/tool/container health and access checks; expected results].
+
+**Stage 1 complete when:** [Fill in: required inputs are verified, required agents/skills are loaded, tools are callable by the intended agents, and applicable container/index readiness checks pass; identify the evidence]. Confirm readiness before proceeding. Setup approval does not authorize scientific execution; obtain the applicable execution approval separately.
 
 ## 6. Fixed prompt + matching output
+
+### Stage 2 — Execute the science and computations
 
 **Binding:** [Fill in: tested profile; prompt version; exact sample input/version and parameter values]. Include required system/agent instructions in the versioned configuration. Resolve placeholders before execution; the published prompt must be copy-paste ready.
 
@@ -79,6 +89,14 @@ Replace each scaffold with exact commands/configuration references and an observ
 ```text
 [Fill in: complete prompt with fixed input references, explicit parameters and requested output format.]
 ```
+
+**Execution:** [Fill in: ordered agent/tool/computation steps or versioned workflow reference; output destination; progress reporting and stop/resume instructions]. Use the bounds recorded in section 2 and preserve failed attempts.
+
+**Stage 2 complete when:** [Fill in: required execution steps have finished and the new run's outputs and execution records are available for verification]. Execution completion alone is not a validated result.
+
+### Stage 3 — Verify the output against the validated reference
+
+**Validated reference:** [Fill in: reference output location; version/hash; validated profile and input versions; validation date]. Identify the matching reference artifacts for the checks below. Label illustrative outputs separately; they cannot serve as validated reference evidence.
 
 **Matching output** — [Fill in: verified expected / illustrative; illustrative output alone is not validation].
 
@@ -94,6 +112,8 @@ Replace each scaffold with exact commands/configuration references and an observ
 | Pass condition | [Fill in: required checks and automated test or reviewer] |
 
 Judge generated wording by the stated criteria, not identical phrasing. Separate exact requirements from approximate expectations.
+
+**Stage 3 complete when:** [Fill in: all required checks meet the stated pass condition and any required reviewer has confirmed acceptance; record the comparison results and evidence locations]. Report failed or unassessed checks explicitly. A chat response saying PASS is not a substitute for these checks.
 
 ## 7. Expected runtime
 

@@ -3,6 +3,11 @@
 Start with **[QuickStart-Template.md](QuickStart-Template.md)**.
 Download a copy and complete it for your tested scenario.
 
+The execution instructions use three stages: **set up and confirm readiness**,
+**execute the science and computations**, and **verify against the validated
+reference output**. Complete the check at the end of each stage. The template
+retains all nine sections for configuration, requirements and supporting details.
+
 ## For scenario owners
 
 1. Use [the blank template](QuickStart-Template.md) to document the
