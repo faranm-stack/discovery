@@ -3,43 +3,76 @@
 Reproduce a frozen-reference lead-generation workflow with the
 **[BioPharma v0.11 QuickStart guide](QuickStart-BioPharma%20LeadGen%20v0.11.md)**.
 
-**Availability:** All six inputs have public download locations. The large
-snapshot is hosted in a versioned **contributor-fork QuickStart prerelease**,
-not an official Microsoft release. Its original bytes and licence notices are
-retained. The updated repo-link launch still needs a fresh Stable execution test;
-download verification is not a scientific pass.
+**Status:** All files are available; the assistant downloads them for you.
+This link-based route is new and still being tested end to end in Discovery Stable.
 
 ## Start here — give Discovery this folder link
 
-You do not need to clone the repository, install Git, download individual files
-or unzip them yourself. The assistant prepares the inputs after your approval.
+**Don't download anything from this page.** The Discovery assistant downloads
+all the files for you after asking your permission (about 170 MB).
+The only thing you may need to install yourself is Python, and the assistant
+tells you exactly when and from where.
 
-1. Open **Microsoft Discovery Stable**. Use the dropdown beside the current
-	project name to return to the project selector, then click **New project**
-	in the local-project view.
-2. In the folder picker, navigate to **Downloads**, create a new empty folder
-	named **QuickStart-BioPharma**, select it, and click **Open local project**.
-	Use a new name if it already exists; do not reuse an old tested project.
-3. Click **New session**. In the chat's model selector choose
-	**GPT-6 Astra (`gpt-6-astra`)**. If it is unavailable, stop and resolve access.
-4. Copy this scenario folder's URL from your browser. Paste it into the chat
-	with the following message (replace the bracketed text with that URL):
+**You need:** a Windows 64-bit PC, Microsoft Discovery Stable, access to the
+GPT-6 Astra model, an internet connection and about 3 GB of free disk space.
 
-> Run the BioPharma QuickStart from [paste this GitHub folder link]. Read its
-> README, full guide and shared QuickStart runner. Help me prepare this new
-> local project: download and verify the required inputs, then guide setup,
-> execution and result checks. Ask before downloading/preparing files,
-> installing anything or starting computation. Use the default frozen-reference
-> workflow, not fresh discovery. Stop and explain any missing capability or
-> mismatched version; do not reuse another project's files or results.
+### Step 1 — Copy this page's link
 
-**No file attachments are needed for this link-based route** if the assistant
-can read GitHub and download files with its local tools. If it cannot, it should
-say what is missing, not claim to have loaded the guide or silently switch methods.
-The optional manual route below is a separate fallback, not proof this route works.
-Project labels were checked against Windows Stable 0.0.4; other builds may differ.
+Click your browser's address bar at the top of this page (the link starts with
+`https://github.com/`) and press **Ctrl+C**. Keep this page open.
 
-### Instructions for the receiving assistant
+### Step 2 — Create a new, empty project
+
+1. Open **Microsoft Discovery Stable** (not Preview).
+2. If a project is already open, click its name at the top of the left sidebar
+	to go back to the project list.
+3. Click **New project**. A folder picker opens.
+4. In the folder picker, click **Downloads** on the left, then click
+	**New folder** and name it **QuickStart-BioPharma**.
+	(If that name already exists, use **QuickStart-BioPharma-2**. Don't reuse an old project.)
+5. Click the new folder once, then click **Open local project**.
+6. In the left sidebar, click **New session**.
+
+### Step 3 — Pick the model
+
+In the chat box, open the model menu and choose **GPT-6 Astra**. If you don't
+see it, stop here: your account needs Astra access first.
+
+### Step 4 — Send the link and the starting message
+
+1. Click in the chat box and press **Ctrl+V** to paste the link you copied in step 1.
+2. Press **Shift+Enter** to start a new line (don't send yet).
+3. Come back to this page. Hover over the message below and click the
+	**copy** icon at its top-right corner.
+4. Click in the chat box under the link, press **Ctrl+V**, then press **Enter** to send.
+
+```text
+Run the BioPharma QuickStart from the GitHub link above. Read its README, full guide and shared QuickStart runner. Set up this new, empty project for me: download and verify the required files, then guide me through setup, the run and checking the results. Ask me before downloading files, installing anything or starting the computation. Use the default frozen-reference workflow, not fresh discovery. If something is missing or the wrong version, stop and tell me exactly what to do. Don't reuse files or results from other projects.
+```
+
+You don't need to attach any files.
+
+### Step 5 — Answer the assistant's questions
+
+The assistant works through these in order and asks you before each one.
+Reply in the chat each time.
+
+| The assistant asks… | What it means | What you do |
+| --- | --- | --- |
+| To download the QuickStart files | About 170 MB of fixed reference files go into your project folder and are checked | Reply **Yes** |
+| About Python 3.13.14 | The run needs this exact Python version. **It is not installed automatically.** | If it's missing, the assistant gives you the download link. Choose **Windows installer (64-bit)**, run it, then tell the assistant "done". If you're told a newer Python is already installed, stop and tell the assistant—don't uninstall anything. |
+| "Do you select all 14 required dependencies?" | Agreeing to the list of Python packages | Reply **Yes** |
+| To install the packages | It installs them into a separate folder inside this project | Reply **Yes** |
+| To start the computation | The actual scientific run | Reply **Yes**. The first part can be quiet for about 30–40 minutes; that's normal. Don't start it again. |
+
+At the end, the assistant shows the results and whether they match the
+reference. If anything fails, it tells you what happened. Don't start a
+second run without asking it first.
+
+These steps were checked against Discovery Stable 0.0.4 on Windows. If a
+button looks different, take a screenshot and tell the assistant.
+
+### For the assistant (you can skip this)
 
 1. Resolve the user's GitHub folder URL to its **actual repository and exact
 	40-character commit SHA**. Stay on that fork/branch; do not substitute upstream
