@@ -1,5 +1,24 @@
 # QuickStart Scenario — BioPharma CDK Target Selection and Lead Discovery
 
+> **Repository download addendum (2026-11-12):** To start from a GitHub folder
+> link, first follow the adjacent [QuickStart README](README.md#start-here--give-discovery-this-folder-link).
+> The receiving assistant should resolve that folder to an exact repository
+> commit, read this full guide and the shared QuickStart runner at that commit,
+> then request permission to download and verify the inputs into a new local
+> folder. Customers need not manually download or unzip files for this route.
+> The Windows download-only helper needs PowerShell 5.1+, not Python; scientific
+> setup still requires the exact Python and dependencies below.
+> The required [frozen snapshot](https://github.com/faranm-stack/discovery/releases/download/QuickStart-BioPharma-frozen-reference-v1/cdk_non_md_deliverables.zip)
+> is now publicly hosted in a contributor-fork QuickStart prerelease, not an
+> official Microsoft release. Its original filename is `cdk_non_md_deliverables.zip`,
+> size **168,396,900 bytes**, SHA-256
+> `bfc939735a574ccc2375ae9808e9242fb79efc545d5b3f314cc38e5d0cefa076`.
+> All other inputs are linked in the README. This addendum supersedes only the
+> historical statements below that public source/download locations are pending.
+> Immutable revision selection is recorded per download. Catalog availability,
+> new customer-instance execution and acceptance remain unvalidated. It changes
+> no scientific instructions, pins, prompts, exclusions or approval gates.
+
 **Document revision:** 0.11-proposed, 2026-11-06 — proposed from revision 0.10 after a second-machine run; pending owner review. This single Markdown file contains the **QuickStart Scenario specification**, the **customer Quick Start guide**, and the **agent-readable Execute in Discovery instructions**. Revision 0.10 replaced all earlier dependency-selection flows with one ordinary typed **Yes** or **No** reply for the complete set of 14 pinned dependencies, retaining Required labels and descriptions. Yes selects the full set; No declines and pauses setup. Selection is neither installation nor computation consent. It changes documentation only; it creates no agents, manifest, catalog entry, app controls or replacement ZIP.
 
 **Applies to every ingesting Discovery chat:** These instructions are portable and apply whenever this file is ingested into any Discovery chat and the user requests execution. Throughout this guide, "this chat", "current chat" and "in-chat" mean that receiving Discovery conversation, not the conversation in which this guide was edited. Present all 14 dependencies with descriptions and Required status, then ask the single full-set Yes/No question in section 5 and accept an ordinary typed chat reply. Do not invoke `ask_user` for this dependency response or use selectable cards, checkboxes, per-package questions, removal/exceptions flows, external forms or file uploads. Inspect that environment afresh; never inherit selections, installation approvals, computation approvals or readiness results from another conversation. This guide contains behavior instructions, not saved user consent or an implementation of chat controls. Merely opening or ingesting the file does not authorize installation or computation.

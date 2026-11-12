@@ -7,7 +7,7 @@ description: >-
   execution approvals, and validate actual outputs. Do not replace the guide
   with a generated profile or infer permission from examples.
 compatibility: Requires file and command tools and the capabilities stated by the selected full guide. Author-only download preparation uses Python 3.10+.
-metadata: {author: QuickStart Scenarios contributors, version: "0.2.0"}
+metadata: {author: QuickStart Scenarios contributors, version: "0.3.0"}
 ---
 
 # QuickStart Scenarios runner
@@ -19,6 +19,19 @@ Do not shorten it, rewrite its science/prompt, replace it with a generated
 manifest/profile, or execute a different scenario because setup is difficult.
 
 ## Start
+
+When the user supplies a GitHub scenario-folder link rather than attachments,
+resolve its actual repository and branch/tag to an exact commit. Read the adjacent
+README, full guide and this runner from that same commit, including on forks.
+Do not silently substitute upstream main or infer automatic skill activation.
+Check that network and local file/command tools are available. Follow the
+scenario's documented acquisition helper when provided: obtain download consent,
+use versioned URLs and expected sizes/hashes, and record the source revision.
+Downloading approved fixed reference inputs is not new scientific data retrieval.
+Do not ask the scientist to clone Git, arrange files or unzip archives when the
+documented assistant route can do it. If access or a supported acquisition route
+is missing, stop with the specific blocker; do not pretend a manual fallback is
+a successful repo-link test. Downloads are not installation or compute consent.
 
 1. Read the full guide the user attached or selected and the adjacent README.
    If no completed guide exists, say so and stop; do not invent one at runtime.

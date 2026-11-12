@@ -76,9 +76,9 @@ class DownloadTests(unittest.TestCase):
         self.assertFalse(self.dest.with_suffix(".zip").exists())
 
     def test_versioned_folder_keeps_full_version_in_zip_name(self):
-        destination = Path(self.tmp.name) / "BioPharma-v0.11"
+        destination = Path(self.tmp.name) / "QuickStart-BioPharma-v0.11"
         result = package.prepare(self.root, "biopharma", destination, True, False)
-        self.assertEqual(Path(result["zip"]).name, "BioPharma-v0.11.zip")
+        self.assertEqual(Path(result["zip"]).name, "QuickStart-BioPharma-v0.11.zip")
 
     def test_publication_not_inferred_from_local_copy(self):
         result = package.prepare(self.root, "biopharma", self.dest, False, True)
@@ -118,6 +118,39 @@ class DownloadTests(unittest.TestCase):
         with zipfile.ZipFile(self.dest.with_suffix(".zip")) as archive:
             self.assertEqual(set(archive.namelist()), expected)
             self.assertNotIn(sibling_readme, archive.read("README.md"))
+
+    def test_start_instructions_are_self_contained_and_bounded(self):
+        result = package.prepare(self.root, "biopharma", self.dest, True, True)
+        self.assertEqual(result["status"], "prepared-local-review")
+        text = (self.dest / "README.md").read_text(encoding="utf-8")
+        for required in (
+            "Local test candidate", "public download availability is a separate check",
+            "Microsoft Discovery Stable", "Attach exactly two instruction files",
+            "[quickstart-runner.md](quickstart-runner.md)",
+            "[Original Guide.md](Original%20Guide.md)",
+            "## 1. Set up and confirm readiness", "## 2. Execute", "## 3. Verify",
+            "not the fresh-discovery extension in section 6", "before any retry",
+            "dependency selection, installation and computation approvals separate",
+            "**New project**", "**Open local project**", "**New session**",
+            "**GPT-6 Astra (`gpt-6-astra`)**", "**Attach files**",
+            "**Python 3.13.14, 64-bit**", "Python is not installed automatically",
+            "Do not uninstall/downgrade", "Reply **Yes** or **No** in ordinary chat",
+            "# QuickStart BioPharma", "Downloads → QuickStart-BioPharma",
+        ):
+            self.assertIn(required, text)
+        runner = (self.root / "skills/quickstart-runner/SKILL.md").read_bytes()
+        self.assertEqual((self.dest / "quickstart-runner.md").read_bytes(), runner)
+        self.assertEqual((self.dest / ".github/skills/quickstart-runner/SKILL.md").read_bytes(), runner)
+
+    def test_biopharma_specific_steps_do_not_leak_into_other_scenarios(self):
+        self.data["packages"]["siphy"] = self.data["packages"].pop("biopharma")
+        self.data["packages"]["siphy"]["title"] = "Silicon and Physics"
+        self.save()
+        result = package.prepare(self.root, "siphy", self.dest, True, True)
+        self.assertEqual(result["status"], "prepared-local-review")
+        text = (self.dest / "README.md").read_text(encoding="utf-8")
+        self.assertNotIn("gpt-6-astra", text)
+        self.assertNotIn("Python 3.13.14", text)
 
     def test_existing_folder_not_overwritten(self):
         self.dest.mkdir()

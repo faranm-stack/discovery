@@ -4,18 +4,18 @@
   "packages": {
     "biopharma": {
       "title": "BioPharma",
-      "guide": {"path":"quickstarts/biopharma/cdk-frozen-reference/QuickStart-BioPharma LeadGen v0.11.md","name":"QuickStart-BioPharma LeadGen v0.11.md","bytes":113713,"sha256":"c0d6912612536c532731593363b5fadc876791cb429dc497c56ca4a0016d16d1","sourceBytes":113732,"sourceSha256":"1f1046aedcc1d7a323ebf38ab5352b152071de690b967ac95bfec450fb08ec49","publicationEdits":"Personal attribution removed and current guide filename normalized to QuickStart; all other source bytes, including prompts and scientific content, retained. Original archive member filenames are unchanged."},
+      "guide": {"path":"quickstarts/biopharma/cdk-frozen-reference/QuickStart-BioPharma LeadGen v0.11.md","name":"QuickStart-BioPharma LeadGen v0.11.md","bytes":115206,"sha256":"5cb98c4371cd9d55908c2f39078fd4f458a09ea59048194e4304383dd0f59bf8","sourceBytes":113732,"sourceSha256":"1f1046aedcc1d7a323ebf38ab5352b152071de690b967ac95bfec450fb08ec49","publicationEdits":"Personal attribution removed and current guide filename normalized to QuickStart. Repository download addendum dated 2026-11-12 inserted after title; original published body from Document revision onward preserved byte-for-byte, including prompts and scientific content. Original archive member filenames unchanged."},
       "files": [
         {"path":"quickstarts/biopharma/cdk-frozen-reference/files/cdk_operational_bundle_v1.zip","name":"cdk_operational_bundle_v1.zip","bytes":50301,"sha256":"874eba9d9e1ee72d38c257f7904d93953bcb8dc2ec55cf4c2732009c57e74f2f"},
         {"path":"quickstarts/biopharma/cdk-frozen-reference/files/cdk_operational_bundle_v1.sha256","name":"cdk_operational_bundle_v1.sha256","bytes":97,"sha256":"a793e0bb6e34945ad04e230d1b185f66eebd1861219962f9afcff31ebeb46325"},
         {"path":"quickstarts/biopharma/cdk-frozen-reference/files/cdk_operational_bundle_v1_manifest.csv","name":"cdk_operational_bundle_v1_manifest.csv","bytes":2130,"sha256":"04bfa2ab5f0b4095dcf94d3e37ba1019e5f8d4fe6dfa281835ca9a389bbac474"},
         {"path":"quickstarts/biopharma/cdk-frozen-reference/files/cdk_operational_bundle_v1_validation.json","name":"cdk_operational_bundle_v1_validation.json","bytes":1152,"sha256":"0709258b42b18800e7eb4414c965862715370ce1c28f5d9721c3bcb1eceea71f"},
-        {"path":"quickstarts/biopharma/cdk-frozen-reference/files/cdk_non_md_deliverables.zip","name":"cdk_non_md_deliverables.zip","bytes":168396900,"sha256":"bfc939735a574ccc2375ae9808e9242fb79efc545d5b3f314cc38e5d0cefa076"},
+        {"path":"quickstarts/biopharma/cdk-frozen-reference/files/cdk_non_md_deliverables.zip","name":"cdk_non_md_deliverables.zip","bytes":168396900,"sha256":"bfc939735a574ccc2375ae9808e9242fb79efc545d5b3f314cc38e5d0cefa076","url":"https://github.com/faranm-stack/discovery/releases/download/QuickStart-BioPharma-frozen-reference-v1/cdk_non_md_deliverables.zip"},
         {"path":"quickstarts/biopharma/cdk-frozen-reference/files/cdk_non_md_deliverables.sha256","name":"cdk_non_md_deliverables.sha256","bytes":95,"sha256":"702e1df41eb1b1d22106487e0c003b3b5109c06bdbb0c4e4504af110cd24c07b"}
       ],
-      "publicationApproved": false,
-      "publicationReason": "Exact local package prepared; no versioned repository-release upload approved/performed in this change. Source notice records MIT campaign code and separate ChEMBL/KIBA/AqSolDB/wwPDB terms; retain all originals.",
-      "releaseUrl": null,
+      "publicationApproved": true,
+      "publicationReason": "Contributor explicitly confirmed public redistribution and authorized upload to faranm-stack/discovery on 2026-11-12. Exact snapshot and checksum published in a versioned contributor-fork QuickStart prerelease; not an official Microsoft release or independent legal review. Retain original MIT campaign code and ChEMBL/KIBA/AqSolDB/wwPDB notices. Hosting approval is not scientific validation.",
+      "releaseUrl": "https://github.com/faranm-stack/discovery/releases/download/QuickStart-BioPharma-frozen-reference-v1/cdk_non_md_deliverables.zip",
       "referenceOnly": [],
       "runtimeStatus": "Proposed v0.11 guide; revised shared runner not yet tested end to end"
     },
