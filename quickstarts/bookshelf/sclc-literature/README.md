@@ -1,48 +1,163 @@
-# Bookshelf — public SCLC scenario in preparation
+# QuickStart Bookshelf — SCLC Treatment Literature Research
 
-Explore a collection of fifteen small-cell lung cancer (SCLC) papers for
-literature-grounded research. This collection is separate from the Chemistry
-and Materials Science and Silicon and Physics scenario inputs.
+> **Draft, not yet validated.** The setup and paper set are ready to try. The
+> research question is proposed and needs owner approval, and there is no
+> reference answer yet. Your run helps create it.
 
-**This scenario is in preparation.** A complete guide, fixed research prompt,
-validated index configuration, and reference answer are not yet available.
-The materials below are source records, not a prebuilt Bookshelf.
+## Checklist
 
-## Related component
+1. Install the [Discovery app](../../../README.md) and sign in.
+2. Create a project in a new `Downloads\QuickStart-SCLC-Bookshelf` folder and click **New session**.
+3. Select **GPT-6 Astra**.
+4. Send the [Step 1 prompt](#step-1-set-up-and-confirm-the-environment): download the papers and build the Bookshelf.
+5. Send the [Step 2 prompt](#step-2-run-the-research-question): ask the research question.
+6. Send the [Step 3 prompt](#step-3-verify-the-answer): **your answer**, checked against the acceptance criteria.
 
-See [bookshelf-researcher](https://github.com/microsoft/discovery/tree/88a2a1cd1664b7d609659dc86c65f7f632686715/agents/bookshelf-researcher)
-for the reusable literature-research agent.
+## What this QuickStart does
 
-## Supporting files
+A **Bookshelf** is a searchable library you build inside Discovery from your
+own documents. The assistant answers questions using only those documents and
+cites which paper each fact comes from.
 
-The original [manifest.json](files/manifest.json) and
-[selection_sclc.json](files/selection_sclc.json) are included unchanged. Together
-they identify fifteen exact paper versions, **19,134,519 PDF bytes**. The
-manifest contains full titles, DOIs, source URLs, licence records and SHA-256 values.
+In this QuickStart you build a Bookshelf from **15 open-access research papers
+on small-cell lung cancer (SCLC)**, an aggressive lung cancer. The papers
+include treatment guidelines, reviews and clinical studies on first-line
+chemo-immunotherapy, second-line drugs such as lurbinectedin and topotecan,
+and newer DLL3-targeted drugs such as tarlatamab.
 
-The PDFs are not included in this repository. Use the source downloads below;
-preserve the expected filename and verify its checksum. Source availability
-may change; retrieval and Discovery indexing have not been validated for this
-scenario.
+Then you ask one fixed research question: *what are the current treatment
+options for extensive-stage SCLC, and what does the evidence say?* You get a
+written answer where every claim cites one of the 15 papers, plus a comparison
+table and a list of what the papers can't answer.
 
-| Filename | Source download |
+This is literature research, not medical advice. The answer only reflects
+these 15 papers.
+
+## What you need
+
+| Requirement | Details |
 | --- | --- |
-| PMC10378571.1.pdf | [Canadian consensus](https://pmc-oa-opendata.s3.amazonaws.com/PMC10378571.1/PMC10378571.1.pdf) |
-| PMC9174785.1.pdf | [First-line review](https://pmc-oa-opendata.s3.amazonaws.com/PMC9174785.1/PMC9174785.1.pdf) |
-| PMC9776593.1.pdf | [Meta-analysis](https://pmc-oa-opendata.s3.amazonaws.com/PMC9776593.1/PMC9776593.1.pdf) |
-| PMC9469650.1.pdf | [Lurbinectedin review](https://pmc-oa-opendata.s3.amazonaws.com/PMC9469650.1/PMC9469650.1.pdf) |
-| PMC10290806.1.pdf | [DLL3 therapies](https://pmc-oa-opendata.s3.amazonaws.com/PMC10290806.1/PMC10290806.1.pdf) |
-| PMC10218846.1.pdf | [Targeted therapies](https://pmc-oa-opendata.s3.amazonaws.com/PMC10218846.1/PMC10218846.1.pdf) |
-| PMC11137956.1.pdf | [CASPIAN biomarkers](https://pmc-oa-opendata.s3.amazonaws.com/PMC11137956.1/PMC11137956.1.pdf) |
-| PMC8134304.1.pdf | [CASPIAN Japan](https://pmc-oa-opendata.s3.amazonaws.com/PMC8134304.1/PMC8134304.1.pdf) |
-| PMC9520052.1.pdf | [Real-world eligibility](https://pmc-oa-opendata.s3.amazonaws.com/PMC9520052.1/PMC9520052.1.pdf) |
-| PMC10864288.1.pdf | [Bridging study](https://pmc-oa-opendata.s3.amazonaws.com/PMC10864288.1/PMC10864288.1.pdf) |
-| PMC11635664.1.pdf | [LURBICLIN](https://pmc-oa-opendata.s3.amazonaws.com/PMC11635664.1/PMC11635664.1.pdf) |
-| PMC7884704.1.pdf | [Belotecan versus topotecan](https://pmc-oa-opendata.s3.amazonaws.com/PMC7884704.1/PMC7884704.1.pdf) |
-| PMC7341887.1.pdf | [NABSTER](https://pmc-oa-opendata.s3.amazonaws.com/PMC7341887.1/PMC7341887.1.pdf) |
-| PMC13710598.1.pdf | [DeLLphi-304 Japan](https://pmc-oa-opendata.s3.amazonaws.com/PMC13710598.1/PMC13710598.1.pdf) |
-| PMC12459094.1.pdf | [Tarlatamab comparison](https://pmc-oa-opendata.s3.amazonaws.com/PMC12459094.1/PMC12459094.1.pdf) |
+| Discovery app | Download it from the [Discovery download page](../../../README.md) and follow the [install guide](../../../docs/discovery-app/install.md). |
+| Sign-in | A GitHub account with a GitHub Copilot subscription. |
+| Model | **GPT-6 Astra** (`gpt-6-astra`). Choose it in the chat's model menu. |
+| Computer | Windows 11, 64-bit (expected). Not yet tested on any system. |
+| Disk space | About 1 GB free. |
+| Internet | Needed to download about 19 MB of papers. |
 
-Recorded article licences are CC BY 4.0; retain attribution/notices and verify
-third-party exclusions and current terms before bundling for redistribution.
-This is source data, not a prebuilt Bookshelf or proof of scientific acceptance.
+No Python, containers or Azure setup needed.
+
+## How long it takes
+
+Not measured yet. Rough expectations until the first timed run:
+
+| Stage | Time |
+| --- | --- |
+| 1. Set up and confirm (download papers, build and index the Bookshelf) | Not measured. Downloading is quick; indexing 15 PDFs is the slow part. |
+| 2. Ask the research question | Not measured. |
+| 3. Check the answer | A few minutes. |
+
+## What's in the files
+
+The 15 papers are listed with exact sizes, checksums and download links in
+**section 2 of the [guide](QuickStart-Bookshelf-SCLC-Literature.md)**. They
+come straight from PubMed Central's open-access collection and are licensed
+CC BY 4.0. They are not stored in this repository.
+
+- **[manifest.json](files/manifest.json):** full details for each paper: title, journal, year, DOI, licence, download link and checksum.
+- **[selection_sclc.json](files/selection_sclc.json):** the 15 paper IDs and each one's role (6 reviews or guidelines, 9 primary studies).
+
+## Before you start: open a project and a chat
+
+1. **Open Microsoft Discovery.** Sign in with your GitHub account if it asks.
+2. **Create a project.** The app opens on **Projects**. Click **New project**.
+   In the folder window, click **Downloads** on the left, then click
+   **New folder** at the top left. Name it `QuickStart-SCLC-Bookshelf`, click
+   it once to select it, and click **Open local project**. (Avoid
+   OneDrive-synced folders such as Documents or Desktop.)
+3. **Open a chat.** Click **New session** on the left.
+4. **Select the model.** In the chat box, open the model menu and choose
+   **GPT-6 Astra**.
+
+The app shows **Allow once** boxes when the assistant opens a link or runs a
+command. To stop clicking each one, click the arrow next to **Allow once** and
+choose **Allow for this session**. The assistant still asks you in the chat
+before downloading anything.
+
+## Run it in three steps
+
+Copy each prompt into the chat in order. Wait for each step to finish before
+sending the next one.
+
+There are two ways to get the papers, and Step 1 has a prompt for both:
+
+- **A. The assistant downloads them (recommended):** use the **A** prompt.
+- **B. You download them yourself:** follow
+  [Route B](#route-b-download-the-papers-yourself), then use the **B** prompt.
+
+### Route B: download the papers yourself
+
+1. Open the [guide](QuickStart-Bookshelf-SCLC-Literature.md) and go to the
+   paper table in section 2.
+2. In your `QuickStart-SCLC-Bookshelf` folder, create a folder named
+   `sclc-papers`.
+3. For each of the 15 papers, right-click **Download**, choose
+   **Save link as**, and save it into `sclc-papers`. Keep each filename
+   exactly as it is (for example `PMC10378571.1.pdf`).
+4. Check that `sclc-papers` has exactly 15 PDF files.
+5. In the chat, attach the guide: click the attachment button, select
+   `QuickStart-Bookshelf-SCLC-Literature.md` (download it first with
+   **Download raw file** on its GitHub page), and click **Attach files**.
+
+### Step 1: Set up and confirm the environment
+
+**A. The assistant downloads the papers:**
+
+```text
+Set up this QuickStart: https://github.com/microsoft/discovery/blob/main/quickstarts/bookshelf/sclc-literature/QuickStart-Bookshelf-SCLC-Literature.md
+Read the whole guide and tell me in plain language what this experiment does. Then download the 15 papers into a sclc-papers folder in this project and check each file's size and checksum. Ask me before downloading. After that, walk me through creating the sclc-literature Bookshelf step by step with the exact values to type, wait for me to confirm it shows Successfully indexed, then ask it a short test question to confirm it works. Don't ask the research question yet. Finish by telling me whether everything is ready.
+```
+
+**B. You downloaded the papers yourself** (guide attached):
+
+```text
+Set up this QuickStart from the attached guide, using the 15 papers already in the sclc-papers folder of this project. Read the whole guide and tell me in plain language what this experiment does. Check each file's size and checksum. Then walk me through creating the sclc-literature Bookshelf step by step with the exact values to type, wait for me to confirm it shows Successfully indexed, then ask it a short test question to confirm it works. Don't ask the research question yet. Finish by telling me whether everything is ready.
+```
+
+The assistant can't click the app's buttons, so **you create the Bookshelf**.
+It will give you these steps:
+
+1. Click **AI capabilities** on the left, then the **Bookshelves** tab, then **New bookshelf**.
+2. On **1. Details**, fill in the name, description, answer generation model and instructions it gives you.
+3. On **2. Files**, click **Upload** and select all 15 PDFs in `sclc-papers`. Create the Bookshelf.
+4. Wait until it shows **Successfully indexed**, then tell the assistant.
+
+**Done when:** all 15 papers pass their checksum, the Bookshelf shows
+**Successfully indexed**, and the test question comes back with a citation.
+
+### Step 2: Run the research question
+
+**A or B (same prompt either way):**
+
+```text
+Ask the research question in section 6 of the guide, using only the sclc-literature Bookshelf. Show me the full answer with a citation for every claim, the second-line comparison table and the list of questions the papers can't answer. Tell me how long it took.
+```
+
+**Done when:** you have a full written answer with citations.
+
+### Step 3: Verify the answer
+
+**A or B (same prompt either way):**
+
+```text
+Check your answer against the acceptance criteria in section 6 of the guide. Show me a table of each check with pass or fail: it cites only these 15 papers; it mentions durvalumab, lurbinectedin, topotecan, belotecan, nab-paclitaxel and tarlatamab; it cites at least one review (R1-R6) and at least one primary study (P1-P9); and it has the four parts, the table and the not-covered list. Then pick five claims and show me the exact passage in the cited paper that supports each one. Tell me in one sentence whether this run passes.
+```
+
+**Done when:** every check passes and the five spot-checked claims match
+their papers. Save the answer: until there is an official reference answer,
+a passing run reviewed by the owner becomes it.
+
+## Status and next steps
+
+- **Ready:** the 15 papers, their download links and checksums (all checked on 2026-11-13), and the setup steps.
+- **Pending:** owner approval of the research question, a first timed run, and a reviewed reference answer.
+- The papers are recorded as CC BY 4.0. Keep attribution when you share the answer.

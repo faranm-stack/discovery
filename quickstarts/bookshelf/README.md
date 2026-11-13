@@ -2,11 +2,11 @@
 
 | QuickStart | Description | Availability |
 | --- | --- | --- |
-| [SCLC literature research](sclc-literature/README.md) | Explore a fifteen-paper small-cell lung cancer collection for literature-grounded research. | In preparation; paper metadata and source links available. |
+| [SCLC treatment literature research](sclc-literature/README.md) | Build a Bookshelf from fifteen open-access small-cell lung cancer papers and ask a fixed, cited research question. | Draft: setup and papers ready to try; research question pending owner approval; no reference answer yet. |
 
 ## Supporting files
 
-See the [SCLC paper collection](sclc-literature/README.md#supporting-files).
+See the [SCLC paper list](sclc-literature/README.md#whats-in-the-files).
 
 ## Contribute a QuickStart
 

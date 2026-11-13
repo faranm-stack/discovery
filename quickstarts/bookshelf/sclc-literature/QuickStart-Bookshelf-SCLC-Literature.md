@@ -1,0 +1,134 @@
+# Quick Start — Bookshelf: SCLC Treatment Literature Research
+
+> **How this QuickStart runs:** The user opens Discovery, creates a new empty project, selects GPT-6 Astra and sends a setup message with this guide's GitHub link. The user may know nothing about Discovery, Bookshelves or this scenario. If the link is a `github.com/.../blob/...` page, read the raw file. Read this entire guide first, then follow section 5 (setup), section 6 (research question) and the acceptance checks in section 6. In plain language, tell the user what the experiment does, then ask permission before downloading the 15 papers listed under **Required files** into a new `sclc-papers` folder in the open project, and verify each size and SHA-256. **Opening the link and downloading the papers is your job:** if you can't read the `github.com` page, fetch the raw file, or download with a local command (for example PowerShell `Invoke-WebRequest` or `curl`). Never ask the user to download files instead. Only if every method fails, tell the user exactly what failed, including the error message. You cannot click the app's buttons; when section 5 needs the user to create the Bookshelf, give them the exact values to type and wait for them to confirm it shows **Successfully indexed**. Reading or downloading this guide is not permission to install or compute.
+>
+> **Required files:** the 15 open-access papers in section 2, **19,134,519 bytes** in total. Keep each original filename (`PMC<id>.<version>.pdf`). The same list, with titles, DOIs and licence records, is in [`files/manifest.json`](files/manifest.json). All 15 download links were checked anonymously on 2026-11-13 and matched their recorded SHA-256.
+
+**Status: draft, not yet validated.** The setup path and paper set are fixed. The research question in section 6 is **proposed** and needs owner approval, and no reference answer exists yet. The first validated run, reviewed by the owner, becomes the reference. Fields marked **Pending** must be completed before publication.
+
+## 1. Recipe identity — required
+
+| Field | Value |
+|---|---|
+| Scenario and observable outcome | Build a Bookshelf from 15 open-access small-cell lung cancer (SCLC) papers, then ask a fixed research question. The outcome is a cited answer on current treatment options for extensive-stage SCLC, grounded only in those papers. |
+| Audience / vertical | Scientists and evaluators trying Discovery Bookshelf for literature-grounded research; Bookshelf collection |
+| Delivery mode | App (local project) |
+| Tested configuration / profile identifier | `sclc-literature-v1` (proposed; not yet tested) |
+| Owner / recipe version / last validated date | **Pending** owner; version 0.1-draft; not validated |
+
+## 2. Configuration matrix
+
+| Component | Applicability | Configuration to record |
+|---|---|---|
+| Model | Core | Chat: **GPT-6 Astra** (`gpt-6-astra`). Bookshelf answer generation: model selected in the Bookshelf form, **Pending** (record the exact choice from the first validated run). |
+| Agents | Core | The default Discovery assistant reads this guide and uses the app's Bookshelf ask capability. The catalog [bookshelf-researcher](../../../agents/bookshelf-researcher/README.md) agent describes the intended research style (cited, confidence-rated, Bookshelf-only evidence); using it is optional and not yet tested here. |
+| Orchestration | Core | Sequential: download and verify papers → user creates the Bookshelf and waits for indexing → assistant asks the fixed question → assistant checks the answer against section 6. No parallel workers. |
+| Tools / APIs | Core | Local file download (PowerShell `Invoke-WebRequest` or `curl`), SHA-256 verification, the app's local Bookshelf ask capability. |
+| Azure Container Apps (ACA) | N/A | Not used. |
+| Sample inputs | Core | 15 PMC open-access PDFs listed below; 19,134,519 bytes total; sources and hashes from [`files/manifest.json`](files/manifest.json) and [`files/selection_sclc.json`](files/selection_sclc.json). |
+
+**Paper set** (R = review or guideline, P = primary study):
+
+| ID | File | Bytes | SHA-256 | Source | Title |
+|---|---|---:|---|---|---|
+| R1 | `PMC10378571.1.pdf` | 1,488,139 | `347cc1fd00cbf35a4e61f76647c022e28444a581a3bf74d215595ed2f6a766b5` | [Download](https://pmc-oa-opendata.s3.amazonaws.com/PMC10378571.1/PMC10378571.1.pdf) | Canadian Consensus Recommendations on the Management of Extensive-Stage Small-Cell Lung Cancer (Current Oncology, 2023) |
+| R2 | `PMC9174785.1.pdf` | 576,196 | `7ca87ce16768323e5dd885b9f1280a9749be36773e0370f799f0956d700c1730` | [Download](https://pmc-oa-opendata.s3.amazonaws.com/PMC9174785.1/PMC9174785.1.pdf) | First-Line Treatment for Advanced SCLC: What Is Left Behind and Beyond Chemoimmunotherapy (Frontiers in Medicine, 2022) |
+| R3 | `PMC9776593.1.pdf` | 1,623,437 | `d7c5573d8daf98ceed3f76ba5a14b63c5aa2c79ba5e04d7183035f8b25177a66` | [Download](https://pmc-oa-opendata.s3.amazonaws.com/PMC9776593.1/PMC9776593.1.pdf) | Chemo-Immunotherapy in First Line Extensive Stage Small Cell Lung Cancer (ES-SCLC): A Systematic Review and Meta-Analysis (Current Oncology, 2022) |
+| R4 | `PMC9469650.1.pdf` | 472,010 | `62625034d1239bab5ab2c490eae76028c7309f77c2b193504c8ecbf4e3ec71a7` | [Download](https://pmc-oa-opendata.s3.amazonaws.com/PMC9469650.1/PMC9469650.1.pdf) | Lurbinectedin in small cell lung cancer (Frontiers in Oncology, 2022) |
+| R5 | `PMC10290806.1.pdf` | 1,749,843 | `c42a674d12dabe3c0e294a5a034f3672977f049d51599fc0ecf21870ef21c8af` | [Download](https://pmc-oa-opendata.s3.amazonaws.com/PMC10290806.1/PMC10290806.1.pdf) | Emerging therapies targeting the delta-like ligand 3 (DLL3) in small cell lung cancer (Journal of Hematology & Oncology, 2023) |
+| R6 | `PMC10218846.1.pdf` | 902,692 | `138b26f8426de48f148b8820af73698880b5890d0eb0f41490f2d151373007cf` | [Download](https://pmc-oa-opendata.s3.amazonaws.com/PMC10218846.1/PMC10218846.1.pdf) | Targeted Therapies in Small Cell Lung Cancer: From Old Failures to Novel Therapeutic Strategies (International Journal of Molecular Sciences, 2023) |
+| P1 | `PMC11137956.1.pdf` | 6,137,342 | `3900517f0e21b338663f292eae38beb32b2eeb55454aaa1c3968d400f4a9aaab` | [Download](https://pmc-oa-opendata.s3.amazonaws.com/PMC11137956.1/PMC11137956.1.pdf) | Molecular classification and biomarkers of outcome with immunotherapy in extensive-stage small-cell lung cancer: analyses of the CASPIAN phase 3 study (Molecular Cancer, 2024) |
+| P2 | `PMC8134304.1.pdf` | 712,598 | `713d17f1c07b09095bfabccbaf786eae0b3e953383b90af5ae66f41ff67c3ddb` | [Download](https://pmc-oa-opendata.s3.amazonaws.com/PMC8134304.1/PMC8134304.1.pdf) | First-line durvalumab plus platinum-etoposide in extensive-stage small-cell lung cancer: CASPIAN Japan subgroup analysis (International Journal of Clinical Oncology, 2021) |
+| P3 | `PMC9520052.1.pdf` | 735,205 | `d8136d09f3884c1248d747e02b1e83e5e08aa31ffb6d6b2d95757df094e1340b` | [Download](https://pmc-oa-opendata.s3.amazonaws.com/PMC9520052.1/PMC9520052.1.pdf) | Real-world eligibility for platinum doublet plus immune checkpoint inhibitors in extensive-stage small-cell lung cancer (Frontiers in Oncology, 2022) |
+| P4 | `PMC10864288.1.pdf` | 1,069,596 | `d6893fca0d393af0676180db8b2566bfd45eba81fb3e3a623da2044c2af4bc40` | [Download](https://pmc-oa-opendata.s3.amazonaws.com/PMC10864288.1/PMC10864288.1.pdf) | A pivotal bridging study of lurbinectedin as second-line therapy in Chinese patients with small cell lung cancer (Scientific Reports, 2024) |
+| P5 | `PMC11635664.1.pdf` | 397,910 | `11d375c600735a8b4f396dd51d3a35f3e87d9fbdfd03720d5222f3c7b26d623b` | [Download](https://pmc-oa-opendata.s3.amazonaws.com/PMC11635664.1/PMC11635664.1.pdf) | Lurbinectedin in extensive-stage small-cell lung cancer: a brief report of the IFCT-2105 LURBICLIN study (ESMO Open, 2024) |
+| P6 | `PMC7884704.1.pdf` | 775,849 | `e8492703c5ff2b8ce5ae4324a4ff1c22650427155deed6e76fb8ee77c8b9735c` | [Download](https://pmc-oa-opendata.s3.amazonaws.com/PMC7884704.1/PMC7884704.1.pdf) | A randomised phase 2b study comparing the efficacy and safety of belotecan vs. topotecan as monotherapy for sensitive-relapsed small-cell lung cancer (British Journal of Cancer, 2020) |
+| P7 | `PMC7341887.1.pdf` | 507,077 | `a9108985878d1ea5cf1b19cc0323b33abb84e9267791f4112df8f22b89056bdf` | [Download](https://pmc-oa-opendata.s3.amazonaws.com/PMC7341887.1/PMC7341887.1.pdf) | Phase 2 study of NAB-paclitaxel in SensiTivE and refractory relapsed small cell lung cancer (SCLC) (NABSTER TRIAL) (British Journal of Cancer, 2020) |
+| P8 | `PMC13710598.1.pdf` | 594,589 | `6415898f323b692949da04def2265f4aafe7c40182ddc0299325f65454faf55d` | [Download](https://pmc-oa-opendata.s3.amazonaws.com/PMC13710598.1/PMC13710598.1.pdf) | Tarlatamab in small cell lung cancer following platinum-based chemotherapy: subgroup analysis of Japanese patients from the DeLLphi-304 study (International Journal of Clinical Oncology, 2026) |
+| P9 | `PMC12459094.1.pdf` | 1,392,036 | `a699c6c96c79249dc3b828882a34a84678460ccb04a9fa0cf7220f314e10f043` | [Download](https://pmc-oa-opendata.s3.amazonaws.com/PMC12459094.1/PMC12459094.1.pdf) | Efficacy outcomes between tarlatamab and real-world physicians' choice of therapies for previously treated extensive stage small cell lung cancer (The Oncologist, 2025) |
+
+## 3. System requirements
+
+| Applies to | Requirement | Minimum | Recommended | Actually tested |
+|---|---|---|---|---|
+| App | OS and version | Not validated | Windows 11 | **Pending** |
+| App | CPU architecture | Not validated | x64 | **Pending** |
+| App | CPU family / cores | Not validated | Not specified | **Pending** |
+| App | RAM | Not validated | Not specified | **Pending** |
+| App | GPU / VRAM | N/A | N/A | N/A |
+| App | Free storage | Not validated | 1 GB (papers about 19 MB, plus the local index) | **Pending** |
+| Services | Node pools | N/A | N/A | N/A |
+
+**Bookshelf — local, tested profile values:**
+
+| Field | Tested profile value |
+|---|---|
+| Source corpus | 15 documents; 19,134,519 bytes of PDF; corpus `sclc-literature-v1` |
+| Index | **Pending** (record indexed size and chunk count shown after indexing) |
+| Indexing recipe | App defaults for a local Bookshelf; answer generation model **Pending**; chunking settings are not exposed in the form |
+| Index-ready condition | The Bookshelf shows **Successfully indexed** with 15 files, and a test question returns citations from these papers |
+
+## 4. Prerequisites
+
+- **Access:** Microsoft Discovery app; GitHub account with a GitHub Copilot subscription; access to GPT-6 Astra.
+- **Environment:** Internet access to `pmc-oa-opendata.s3.amazonaws.com` and `raw.githubusercontent.com`. No Python, containers or Azure resources are needed.
+- **Authentication:** App sign-in only. No secrets are used.
+- **Data:** All 15 papers are PubMed Central open-access articles recorded as **CC BY 4.0**. Keep attribution. The papers are downloaded from their sources, not redistributed in this repository.
+
+## 5. Setup — one reproducible reference path
+
+1. **Select profile:** `sclc-literature-v1`, local App project, GPT-6 Astra.
+2. **Install/provision:** App only. Services: N/A.
+3. **Download and verify the papers (assistant):** with the user's permission, create a `sclc-papers` folder in the open project and download all 15 files from section 2 into it. Check each file's size and SHA-256. Report a table of all 15 with pass or fail. **Done when:** 15 of 15 pass.
+4. **Create the Bookshelf (user, in the app):** the assistant cannot click buttons, so give the user these exact steps and values:
+   1. In the left sidebar, click **AI capabilities**, then the **Bookshelves** tab, then **New bookshelf**.
+   2. On **1. Details**: Name `sclc-literature`; Description `Fifteen open-access papers on small-cell lung cancer treatment (sclc-literature-v1).`; Answer generation: choose the available model and tell the assistant which one; Instructions for use `Answer only from these papers. Cite the paper for every claim. Say when the papers do not cover something.`
+   3. On **2. Files**: click **Upload**, select all 15 PDFs in the project's `sclc-papers` folder, then create the Bookshelf.
+   4. Wait until the Bookshelf shows **Successfully indexed**, then tell the assistant.
+5. **Verify readiness (assistant):** ask the Bookshelf a short test question, for example "Which drug is studied in the LURBICLIN study?", and confirm the answer cites a paper from this set. **Done when:** the answer is grounded and cited. If the assistant has no way to query the Bookshelf, stop and report exactly what is missing.
+
+## 6. Fixed prompt + matching output
+
+**Binding:** profile `sclc-literature-v1`; Bookshelf `sclc-literature` built from the 15 papers in section 2; GPT-6 Astra. **The prompt below is proposed and needs owner approval.**
+
+**Exact predefined prompt (proposed)**
+
+```text
+Using only the sclc-literature Bookshelf, summarise the current treatment options for extensive-stage small-cell lung cancer. Cover: (1) first-line chemo-immunotherapy and who is eligible; (2) second-line options after platinum-based chemotherapy, including lurbinectedin and topotecan-class agents; (3) DLL3-targeted therapy, including tarlatamab; and (4) what molecular subtypes or biomarkers suggest about who benefits. For every claim, cite the paper it comes from. End with a short table comparing the second-line options and a list of questions these papers cannot answer.
+```
+
+**Matching output** — **Pending.** No validated reference answer exists yet. The first run that passes the checks below, reviewed by the owner, becomes the reference answer and is stored with this guide.
+
+| Acceptance | Check |
+|---|---|
+| Required format / artifacts | A written answer with four labelled parts, a second-line comparison table and a "not covered" list. Every factual claim has a citation to one of the 15 papers. |
+| Exact checks | Cites only papers from this set (no outside sources). Mentions each of these treatments, which appear in the paper titles: durvalumab, lurbinectedin, topotecan, belotecan, nab-paclitaxel and tarlatamab. Cites at least one review (R1–R6) and at least one primary study (P1–P9). |
+| Approximate / domain checks | **Pending owner:** claims match the cited papers; no invented trial results or numbers; limitations stated where the papers disagree or are small studies. A reviewer spot-checks at least five citations against the PDFs. |
+| Pass condition | All exact checks pass and the owner or a named reviewer signs off the domain checks. |
+
+## 7. Expected runtime
+
+No measured runs yet. All values are **Pending**.
+
+| Stage | Measured / Estimated | First response (optional) | Completion duration / range, with units | Conditions / observations / runs |
+|---|---|---|---|---|
+| One-time install/provision/setup | Pending | N/A | Pending | Download of 19 MB of papers plus Bookshelf creation |
+| One-time data loading/indexing | Pending | N/A | Pending | Local indexing of 15 PDFs |
+| Cold-start prompt run | Pending | Pending | Pending | First question after indexing completes |
+| Warm prompt run | Pending | Pending | Pending | Repeat question in the same session |
+
+## 8. Troubleshooting, cleanup and extensions
+
+- **A download fails or a checksum doesn't match:** re-download that one file from its link in section 2. Do not substitute another version of the paper.
+- **Indexing shows Failed:** delete the Bookshelf and create it again with the same 15 files. Record the error shown.
+- **A Bookshelf question fails with an error:** a transient error has been seen on local Bookshelf questions (model returned HTTP 409, reported as "Failed to ask local bookshelf: 500"); retrying in a new session succeeded. Record the error and retry once.
+- **Cleanup:** delete the `sclc-literature` Bookshelf from **AI capabilities → Bookshelves** and delete the `sclc-papers` folder. No cloud resources are created.
+- **Optional vertical addendum:** This is literature research, not medical advice. Answers summarise the 15 papers only and may be out of date.
+
+## 9. Publication checklist
+
+- [ ] One reference path reproduced; versions, sample inputs and prompt fixed to the tested profile.
+- [ ] Output validated; exact/approximate acceptance criteria and domain checks explicit.
+- [ ] Applicable configuration/specs complete; unused fields N/A; compatibility checked; no unverified minima claimed.
+- [ ] Timings labeled with conditions; setup/indexing distinct from cold/warm runs.
+- [x] No secrets; samples permitted (CC BY 4.0, downloaded from source); cleanup documented. Owner, version and validation date: **Pending**.
