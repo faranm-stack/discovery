@@ -127,9 +127,10 @@ The assistant can't click the app's buttons, so **you create the Bookshelf**.
 It will give you these steps:
 
 1. Click **AI capabilities** on the left, then the **Bookshelves** tab, then **New bookshelf**.
-2. On **1. Details**, fill in the name, description, answer generation model and instructions it gives you.
-3. On **2. Files**, click **Upload** and select all 15 PDFs in `sclc-papers`. Create the Bookshelf.
-4. Wait until it shows **Successfully indexed**, then tell the assistant.
+2. On **1. Details**, type the name `sclc-literature` and the description the assistant gives you. Leave the embedding model as it is. Under **Answer generation**, choose a model (this is required) and tell the assistant which one. Click **Next**.
+3. On **2. Files**, click **Upload**, open `sclc-papers`, press **Ctrl+A** to select all 15 PDFs, and click **Open**. Click **Next**.
+4. On **3. Review + create**, click **Create**.
+5. Wait until it shows **Successfully indexed**, then tell the assistant.
 
 **Done when:** all 15 papers pass their checksum, the Bookshelf shows
 **Successfully indexed**, and the test question comes back with a citation.

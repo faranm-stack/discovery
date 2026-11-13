@@ -20,10 +20,10 @@
 
 | Component | Applicability | Configuration to record |
 |---|---|---|
-| Model | Core | Chat: **GPT-6 Astra** (`gpt-6-astra`). Bookshelf answer generation: model selected in the Bookshelf form, **Pending** (record the exact choice from the first validated run). |
-| Agents | Core | The default Discovery assistant reads this guide and uses the app's Bookshelf ask capability. The catalog [bookshelf-researcher](../../../agents/bookshelf-researcher/README.md) agent describes the intended research style (cited, confidence-rated, Bookshelf-only evidence); using it is optional and not yet tested here. |
+| Model | Core | Chat: **GPT-6 Astra** (`gpt-6-astra`). Bookshelf embedding: `text-embedding-3-small (Copilot)`, fixed by the app. Bookshelf answer generation: chosen from the models the app lists for the user's GitHub account, **Pending** (record the exact choice from the first validated run). |
+| Agents | Core | The default Discovery assistant. It reads this guide and queries the Bookshelf with the app's built-in tools, which are available in every chat without extra setup. The catalog [bookshelf-researcher](../../../agents/bookshelf-researcher/README.md) agent describes the intended research style (cited, confidence-rated, Bookshelf-only evidence); using it is optional and not yet tested here. |
 | Orchestration | Core | Sequential: download and verify papers → user creates the Bookshelf and waits for indexing → assistant asks the fixed question → assistant checks the answer against section 6. No parallel workers. |
-| Tools / APIs | Core | Local file download (PowerShell `Invoke-WebRequest` or `curl`), SHA-256 verification, the app's local Bookshelf ask capability. |
+| Tools / APIs | Core | Local file download (PowerShell `Invoke-WebRequest` or `curl`) and SHA-256 verification. The app's built-in Bookshelf tools: `discovery.bookshelf.listShelves`, `discovery.bookshelf.search` and `discovery.bookshelf.ask`. Call them one at a time; on a busy or worker error, report it rather than retrying automatically. |
 | Azure Container Apps (ACA) | N/A | Not used. |
 | Sample inputs | Core | 15 PMC open-access PDFs listed below; 19,134,519 bytes total; sources and hashes from [`files/manifest.json`](files/manifest.json) and [`files/selection_sclc.json`](files/selection_sclc.json). |
 
@@ -65,7 +65,7 @@
 |---|---|
 | Source corpus | 15 documents; 19,134,519 bytes of PDF; corpus `sclc-literature-v1` |
 | Index | **Pending** (record indexed size and chunk count shown after indexing) |
-| Indexing recipe | App defaults for a local Bookshelf; answer generation model **Pending**; chunking settings are not exposed in the form |
+| Indexing recipe | App defaults for a local Bookshelf: embedding model `text-embedding-3-small (Copilot)`; answer generation model **Pending**; chunking settings are not exposed in the form |
 | Index-ready condition | The Bookshelf shows **Successfully indexed** with 15 files, and a test question returns citations from these papers |
 
 ## 4. Prerequisites
@@ -73,7 +73,7 @@
 - **Access:** Microsoft Discovery app; GitHub account with a GitHub Copilot subscription; access to GPT-6 Astra.
 - **Environment:** Internet access to `pmc-oa-opendata.s3.amazonaws.com` and `raw.githubusercontent.com`. No Python, containers or Azure resources are needed.
 - **Authentication:** App sign-in only. No secrets are used.
-- **Data:** All 15 papers are PubMed Central open-access articles recorded as **CC BY 4.0**. Keep attribution. The papers are downloaded from their sources, not redistributed in this repository.
+- **Data:** All 15 papers are PubMed Central open-access articles recorded as **CC BY 4.0**, and none is marked retracted. Keep attribution. The papers are downloaded from their sources, not redistributed in this repository. When the Bookshelf is built and queried, the app sends document chunks and questions to GitHub using the user's Copilot account; this is acceptable here because the papers are public.
 
 ## 5. Setup — one reproducible reference path
 
@@ -82,10 +82,11 @@
 3. **Download and verify the papers (assistant):** with the user's permission, create a `sclc-papers` folder in the open project and download all 15 files from section 2 into it. Check each file's size and SHA-256. Report a table of all 15 with pass or fail. **Done when:** 15 of 15 pass.
 4. **Create the Bookshelf (user, in the app):** the assistant cannot click buttons, so give the user these exact steps and values:
    1. In the left sidebar, click **AI capabilities**, then the **Bookshelves** tab, then **New bookshelf**.
-   2. On **1. Details**: Name `sclc-literature`; Description `Fifteen open-access papers on small-cell lung cancer treatment (sclc-literature-v1).`; Answer generation: choose the available model and tell the assistant which one; Instructions for use `Answer only from these papers. Cite the paper for every claim. Say when the papers do not cover something.`
-   3. On **2. Files**: click **Upload**, select all 15 PDFs in the project's `sclc-papers` folder, then create the Bookshelf.
-   4. Wait until the Bookshelf shows **Successfully indexed**, then tell the assistant.
-5. **Verify readiness (assistant):** ask the Bookshelf a short test question, for example "Which drug is studied in the LURBICLIN study?", and confirm the answer cites a paper from this set. **Done when:** the answer is grounded and cited. If the assistant has no way to query the Bookshelf, stop and report exactly what is missing.
+   2. On **1. Details**: **Name** `sclc-literature` (3 to 24 letters, numbers or hyphens); **Description** `Fifteen open-access papers on small-cell lung cancer treatment.` (optional); **Embedding model** is fixed, leave it; **Answer generation** is required: open the list, choose a model, and tell the assistant which one. Click **Next**.
+   3. On **2. Files**: click **Upload**. The file window opens in the project folder; open `sclc-papers`, press **Ctrl+A** to select all 15 PDFs, and click **Open**. Check that 15 files are listed and click **Next**.
+   4. On **3. Review + create**: check the values and click **Create**.
+   5. Wait until the Bookshelf shows **Successfully indexed**, then tell the assistant.
+5. **Verify readiness (assistant):** call `discovery.bookshelf.listShelves` and confirm `sclc-literature` is listed (and, if a document count is shown, that it is 15). Then call `discovery.bookshelf.ask` with `shelfNames: ["sclc-literature"]` and a short test question, for example "Which drug is studied in the LURBICLIN study?", and confirm the answer cites a paper from this set. **Done when:** the shelf is listed and the test answer is cited. If the Bookshelf tools are missing or fail, stop and report the exact error.
 
 ## 6. Fixed prompt + matching output
 
@@ -121,6 +122,7 @@ No measured runs yet. All values are **Pending**.
 
 - **A download fails or a checksum doesn't match:** re-download that one file from its link in section 2. Do not substitute another version of the paper.
 - **Indexing shows Failed:** delete the Bookshelf and create it again with the same 15 files. Record the error shown.
+- **No answer generation models are listed:** the app shows "This GitHub account has no compatible Bookshelf answer generation models." Check the GitHub Copilot sign-in and subscription; the Bookshelf can't be created without one.
 - **A Bookshelf question fails with an error:** a transient error has been seen on local Bookshelf questions (model returned HTTP 409, reported as "Failed to ask local bookshelf: 500"); retrying in a new session succeeded. Record the error and retry once.
 - **Cleanup:** delete the `sclc-literature` Bookshelf from **AI capabilities → Bookshelves** and delete the `sclc-papers` folder. No cloud resources are created.
 - **Optional vertical addendum:** This is literature research, not medical advice. Answers summarise the 15 papers only and may be out of date.
