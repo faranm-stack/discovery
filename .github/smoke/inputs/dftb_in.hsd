@@ -1,0 +1,21 @@
+Geometry = GenFormat {
+  3 C
+  O H
+  1 1  0.000 0.000 0.000
+  2 2  0.757 0.586 0.000
+  3 2 -0.757 0.586 0.000
+}
+Hamiltonian = DFTB {
+  SCC = Yes
+  SlaterKosterFiles = Type2FileNames {
+    Prefix = "./"
+    Separator = "-"
+    Suffix = ".skf"
+  }
+  MaxAngularMomentum {
+    O = "p"
+    H = "s"
+  }
+}
+Options { WriteResultsTag = Yes }
+ParserOptions { ParserVersion = 12 }

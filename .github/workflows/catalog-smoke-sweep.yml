@@ -1,11 +1,13 @@
 name: Catalog Smoke Sweep
 
-# Monday + Thursday UTC. Schedules are offline unless BOTH live switches are set.
+# Every other Monday, 08:00 UTC (even ISO weeks). GitHub cron can't express "every
+# other week", so the cron fires weekly and the cadence job skips odd weeks.
+# Schedules are offline unless BOTH live switches are set.
 on:
   push:
     branches: ['automation/catalog-validation-*'] # Offline plan/tests only.
   schedule:
-    - cron: '0 8 * * 1,4'
+    - cron: '0 8 * * 1'
   workflow_dispatch:
     inputs:
       mode:
@@ -38,7 +40,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  cadence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      run: ${{ steps.week.outputs.run }}
+    steps:
+      - id: week
+        run: |
+          week=$((10#$(date -u +%V)))
+          if [ "$GITHUB_EVENT_NAME" != "schedule" ] || [ $((week % 2)) -eq 0 ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Off week (ISO week $week): scheduled catalog run skipped." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   plan:
+    needs: cadence
+    if: needs.cadence.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

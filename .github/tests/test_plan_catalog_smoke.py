@@ -38,7 +38,8 @@ def test_curated_tasks_fill_readme_gaps_and_stay_labeled(manifest):
     ase = by_name["ase"]
     assert ase["prompt_status"] == "curated_task_selected"
     assert ase["prompt_source"] == "curated_first_task"
-    assert "EMT" in ase["candidate_prompt"] and "Cu 0.0 0.0 2.8" in ase["candidate_prompt"]
+    assert "EMT" in ase["candidate_prompt"] and "cu2.xyz" in ase["candidate_prompt"]
+    assert ase["input_files"] == ["cu2.xyz"]
     # README-documented tasks still win over curated entries.
     assert by_name["aizynthfinder"]["prompt_status"] == "documented_task_selected"
     assert plan["summary"]["curated_tasks_selected"] >= 50
@@ -51,6 +52,29 @@ def test_curated_tasks_fill_readme_gaps_and_stay_labeled(manifest):
         assert case["approved_prompt"] is None
         assert case["live_ready"] is False
 
+
+def test_external_prerequisites_block_without_a_prompt_being_counted_as_a_failure(manifest):
+    by_name = {case["catalog_agent"]: case for case in build_plan(ROOT, manifest)["cases"]}
+    for name, needle in [("materials-project", "MP_API_KEY"), ("modeller", "licence"),
+                         ("zinc", "cartblanche.docking.org")]:
+        case = by_name[name]
+        assert case["prerequisite_blocker"].startswith("external_prerequisite: ")
+        assert needle in case["prerequisite_blocker"]
+        assert "external_prerequisite" in case["blockers"]
+    # zinc keeps its README task; the prerequisite entry adds no curated prompt.
+    assert by_name["zinc"]["prompt_status"] == "documented_task_selected"
+    assert "prerequisite_blocker" not in by_name["aizynthfinder"]
+
+
+def test_inline_data_tasks_now_attach_files(manifest):
+    by_name = {case["catalog_agent"]: case for case in build_plan(ROOT, manifest)["cases"]}
+    assert by_name["matchms"]["input_files"] == ["spectra.mgf"]
+    assert by_name["mordred"]["input_files"] == ["aspirin.smi"]
+    assert by_name["r-statistics-agent"]["input_files"] == ["observations.csv"]
+    for name, files in [("matchms", ["spectra.mgf"]), ("mordred", ["aspirin.smi"])]:
+        assert all((ROOT / ".github" / "smoke" / "inputs" / f).is_file() for f in files)
+        assert files[0] in by_name[name]["candidate_prompt"]
+    assert 'quantity="synthetic values"' in by_name["flowblind-research-teammate-v2"]["candidate_prompt"]
 
 def test_every_agent_gets_one_capability_prompt_without_science_fixtures(manifest):
     plan = build_plan(ROOT, manifest)

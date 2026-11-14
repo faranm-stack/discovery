@@ -20,11 +20,7 @@ tasks:
   ase:
     action: optimize_structure
     prompt: |
-      Relax this copper dimer with the EMT potential and BFGS, then report the final energy and Cu-Cu distance. Input structure (XYZ):
-      2
-      Cu dimer
-      Cu 0.0 0.0 0.0
-      Cu 0.0 0.0 2.8
+      Relax the attached cu2.xyz copper dimer with the EMT potential and BFGS, then report the final energy and Cu-Cu distance.
   biopython:
     action: parse_sequences
     prompt: |
@@ -55,7 +51,8 @@ tasks:
     prompt: Load the E. coli core metabolic model (BiGG e_coli_core SBML) and run flux-balance analysis; report the biomass objective value.
   copasi-basico:
     action: run_timecourse
-    prompt: Simulate a single mass-action reaction A -> B with k = 0.1 s^-1, A0 = 10 mM, B0 = 0, from 0 to 50 s as an SBML model, and report A and B at t = 50 s.
+    prompt: Run a time course of the attached decay.xml SBML model (A -> B, k1 = 0.1, A0 = 10, B0 = 0) for 10 time units and report the final concentrations of A and B.
+    expected_output: A about 3.679 and B about 6.321 at t = 10.
   crest:
     action: iMTD-GC conformer search
     prompt: Run a CREST iMTD-GC conformer search with GFN2-xTB for n-butane (SMILES CCCC) and report the number of conformers and the lowest relative energies.
@@ -113,26 +110,13 @@ tasks:
     prompt: Retrieve the KEGG entry hsa:7157 (TP53) and report its name, definition and linked pathways.
   matchms:
     action: compare_spectra
-    prompt: |
-      Compute pairwise cosine similarity between these two spectra and report the score and matched peaks. Input (MGF):
-      BEGIN IONS
-      TITLE=spec1
-      PEPMASS=195.0877
-      CHARGE=1+
-      110.0713 20
-      138.0662 60
-      195.0877 100
-      END IONS
-      BEGIN IONS
-      TITLE=spec2
-      PEPMASS=195.0877
-      CHARGE=1+
-      110.0710 25
-      138.0660 55
-      195.0880 100
-      END IONS
+    # Run 2026-11-13: the agent rewrote the inline MGF and the loader failed (KeyError 'num peaks'). Attach the file instead.
+    override: true
+    prompt: Compute pairwise cosine similarity between the two spectra in the attached spectra.mgf and report the score and matched peaks.
   materials-project:
     action: query_materials
+    # Run 2026-11-13: "Materials Project API key required (api_key or MP_API_KEY)". Not an agent defect.
+    prerequisite: Materials Project API key (MP_API_KEY) must be provisioned to the tool in the lab.
     prompt: Query Materials Project for the formula Si and report the most stable entry's material ID, band gap and energy above hull.
   matminer:
     action: featurize
@@ -157,16 +141,17 @@ tasks:
       MVHLTPEEKSAVTALWGKVNVDEVGGEALGRLLVVYPWTQRFFESFGDLST
   modeller:
     action: build_model
+    # Run 2026-11-13: MODELLER refused to start without a valid licence key. Not an agent defect.
+    prerequisite: MODELLER licence key (KEY_MODELLER) must be provisioned to the tool in the lab.
     prompt: Build one comparative model of human ubiquitin carrying the I44A mutation using PDB 1UBQ chain A as the template (write the .ali alignment from the two sequences), and report the model file and DOPE score.
   molecular-groups:
     action: functional group analysis
     prompt: Identify the functional groups in aspirin (SMILES CC(=O)Oc1ccccc1C(=O)O) and report any safety-screening flags.
   mordred:
     action: compute_descriptors
-    prompt: |
-      Compute Mordred 2D descriptors for these SMILES and report the descriptor count and molecular weight for each. Input (one SMILES per line):
-      CCO
-      c1ccccc1O
+    # Run 2026-11-13: inline SMILES were never mounted ("no input files found"). Attach a file instead.
+    override: true
+    prompt: Compute Mordred 2D descriptors for the molecule in the attached aspirin.smi and report the descriptor count and molecular weight.
   msa-align:
     action: align
     prompt: |
@@ -182,7 +167,8 @@ tasks:
     prompt: Process a 1D NMRPipe FID of 1024 complex points (spectral width 8000 Hz, 600 MHz, one decaying signal at 1200 Hz) written with nmrglue from those parameters, and report dimensions and basic statistics.
   openbabel:
     action: convert_formats
-    prompt: Convert ethanol (SMILES CCO) to SDF with generated 3D coordinates and report the atom count and output file path.
+    prompt: Convert the attached molecules.smi to SDF with generated 3D coordinates and report how many molecules were written.
+    expected_output: 3 molecules written.
   opsin:
     action: name_to_structure
     prompt: |
@@ -234,21 +220,14 @@ tasks:
     prompt: Summarize an mzML file containing two MS1 spectra (peaks at m/z 195.0877 and 138.0662) written with pyOpenMS from those values; report spectrum count, MS levels and base peak.
   pyscf:
     action: run_scf
-    prompt: |
-      Run an RHF/STO-3G single-point energy on this water geometry and report the total energy in Hartree. Input (XYZ, Angstrom):
-      3
-      water
-      O 0.000 0.000 0.000
-      H 0.757 0.586 0.000
-      H -0.757 0.586 0.000
+    prompt: Run an RHF/STO-3G single-point energy on the attached water.xyz and report the total energy in Hartree.
+    expected_output: About -74.96 Hartree.
   rdock:
     action: dock_ligands
     prompt: Dock the co-crystallized ligand MK1 back into PDB 1HSG (HIV-1 protease) with an rDock cavity defined around the ligand, and report the top pose score.
   rxnmapper:
     action: map_reactions
-    prompt: |
-      Compute the atom mapping and confidence for this reaction. Input (reaction SMILES):
-      CC(=O)O.OCC>>CC(=O)OCC.O
+    prompt: Atom-map the reactions in the attached reactions.txt and report each mapped reaction SMILES with its confidence.
   samtools-suite:
     action: process_alignments
     prompt: |
@@ -270,21 +249,12 @@ tasks:
       110.0713 20
   spglib:
     action: analyze_symmetry
-    prompt: |
-      Determine the space group and number of symmetry operations of this structure. Input (POSCAR):
-      Si2
-      1.0
-      0.0 2.715 2.715
-      2.715 0.0 2.715
-      2.715 2.715 0.0
-      Si
-      2
-      Direct
-      0.00 0.00 0.00
-      0.25 0.25 0.25
+    prompt: Determine the space group symbol and number of the attached nacl.cif (rock-salt NaCl).
+    expected_output: Fm-3m, number 225.
   tellurium:
     action: simulate_model
-    prompt: Simulate the model A -> B with rate k1*A, k1 = 0.1, A = 10, B = 0 from t = 0 to 50 (write it as SBML), and report A and B at t = 50.
+    prompt: Simulate the attached decay.ant model from t = 0 to 10 and report the final concentrations of A and B.
+    expected_output: A about 3.679 and B about 6.321 at t = 10.
   tmalign:
     action: align_structures
     prompt: Structurally align PDB 1UBQ (query) against PDB 1D3Z model 1 (reference) with TM-align and report TM-score and RMSD.
@@ -297,15 +267,19 @@ tasks:
       Predict the MFE secondary structure for this RNA and report the dot-bracket structure and MFE. Input (FASTA):
       >hairpin
       GGGGAAACCCCAUUUGGGGAAACCCC
+  zinc:
+    # Run 2026-11-13: ConnectTimeout to cartblanche.docking.org from the lab node pool. Keeps the README task.
+    prerequisite: Outbound HTTPS from the lab node pools to cartblanche.docking.org (ZINC22 API).
   flowblind-research-teammate-v2:
     action: prepare_study
     # README's CFD-vs-PIV example needs data we do not have; this is the attached synthetic grid.
     override: true
     prompt: >-
       Prepare a regional agreement study comparing the reference and candidate values across spatial
-      regions in the attached candidate.csv. Quantity: synthetic values. Reference meaning: reference values.
-      Candidate meaning: candidate values. Coordinate unit: mm. Value unit: units. Provenance: synthetic
-      test data. License: CC0.
+      regions in the attached candidate.csv. Pass these scientist metadata fields exactly, including
+      quantity: quantity="synthetic values", referenceMeaning="reference values",
+      candidateMeaning="candidate values", coordinateUnit="mm", valueUnit="units",
+      provenance="synthetic test data", license="CC0".
     expected_output: >-
       The prepare tool runs once and returns a declaration preview of 324 points, says nothing was
       computed, and does not call the run tool.

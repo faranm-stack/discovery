@@ -475,7 +475,10 @@ def test_real_local_offline_planners_produce_exportable_reports(tmp_path):
 
 def test_workflow_public_uploads_exact_files_after_always_export_and_private_raw_gates():
     for workflow in workflows():
-        for job in workflow["jobs"].values():
+        for name, job in workflow["jobs"].items():
+            if name == "cadence":  # week-parity gate only; no evidence or uploads
+                assert all("upload-artifact@" not in s.get("uses", "") for s in job["steps"])
+                continue
             steps = job["steps"]
             exports = [(i, s) for i, s in enumerate(steps) if "python .github/scripts/catalog_public_report.py" in s.get("run", "")]
             assert len(exports) == 1
@@ -517,7 +520,7 @@ def test_push_is_branch_limited_offline_and_live_gates_unchanged():
         assert workflow["on"]["push"] == {"branches": ["automation/catalog-validation-*"]}
         assert set(workflow["on"]) == {"push", "schedule", "workflow_dispatch"}
         assert workflow["permissions"] == {"contents": "read"}
-    assert sweep["on"]["schedule"] == [{"cron": "0 8 * * 1,4"}]
+    assert sweep["on"]["schedule"] == [{"cron": "0 8 * * 1"}]  # every other Monday via the cadence job
     assert kits["on"]["schedule"] == [{"cron": "0 6 * * 1,4"}]
     live = sweep["jobs"]["sweep"]
     assert live["if"].split() == ("github.event.repository.private && vars.CATALOG_SMOKE_ARTIFACTS_APPROVED == 'true' && "

@@ -49,6 +49,16 @@ def load_curated_tasks(repo):
             if isinstance(task, dict) and isinstance(task.get("prompt"), str) and task["prompt"].strip()}
 
 
+def load_prerequisites(repo):
+    """Credentials, licences or network egress the lab must provide before a fair test."""
+    path = repo / CURATED_TASKS
+    if not path.is_file():
+        return {}
+    tasks = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("tasks") or {}
+    return {name: task["prerequisite"].strip() for name, task in tasks.items()
+            if isinstance(task, dict) and isinstance(task.get("prerequisite"), str) and task["prerequisite"].strip()}
+
+
 def resource_lane(tools):
     if not tools:
         return "external_or_platform"
@@ -95,6 +105,7 @@ def build_plan(repo, manifest, *, batch_size=None, concurrency=4):
         raise ValueError("Proposed concurrency must be between 1 and 4")
     cases = []
     curated = load_curated_tasks(repo)
+    prerequisites = load_prerequisites(repo)
     task_inputs = load_task_inputs(repo)
     for item in manifest["agents"]:
         folder = repo / item["path"]
@@ -132,6 +143,8 @@ def build_plan(repo, manifest, *, batch_size=None, concurrency=4):
         prompt = capability_prompt(agent, documented, expected)
         if not documented:
             blockers.append("documented_task_input_missing")
+        if item["name"] in prerequisites:
+            blockers.append("external_prerequisite")
         cases.append({
             "case_id": f"{item['name']}:smoke-v1", "catalog_agent": item["name"],
             "contract": CONTRACT_ID,
@@ -154,6 +167,8 @@ def build_plan(repo, manifest, *, batch_size=None, concurrency=4):
             "expected_assertion": "one_correlated_successful_tool_result",
             "max_response_submissions": 1, "automatic_retries": 0,
             "live_ready": False, "blockers": blockers, "source_fingerprints": fingerprints,
+            **({"prerequisite_blocker": "external_prerequisite: " + prerequisites[item["name"]]}
+               if item["name"] in prerequisites else {}),
         })
     # One catalog ledger, kit by kit, assigning a shared agent to its first kit.
     # Lane-aware scheduling may overlap independent cases within the limits.

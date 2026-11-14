@@ -27,10 +27,14 @@ def action_run_timecourse(input_dir, output_dir, params):
         else:
             basico.load_model(f)
         tc = basico.run_time_course(duration=duration)
+        stem = os.path.splitext(os.path.basename(f))[0]
+        tc.to_csv(os.path.join(output_dir, stem + "_timecourse.csv"))
+        final = {str(k): float(v) for k, v in tc.iloc[-1].items()}
         rows.append({"file": os.path.basename(f), "columns": list(tc.columns),
-                     "n_steps": int(len(tc))})
+                     "n_steps": int(len(tc)), "final_time": float(tc.index[-1]), "final_values": final})
     io_utils.write_json(output_dir, "timecourse.json", rows)
-    io_utils.write_final_results(output_dir, {"models": len(rows)}, ["timecourse.json"])
+    io_utils.write_final_results(output_dir, {"models": len(rows), "results": rows},
+                                 ["timecourse.json"] + [os.path.splitext(r["file"])[0] + "_timecourse.csv" for r in rows])
     return True
 
 

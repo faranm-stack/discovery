@@ -41,6 +41,15 @@ external_inputs:
     source: https://dftb.org/parameters/download
     reason: Obtain the task's mio-1-1 parameter set under its published license; not staged.
 inputs:
+  # Verified live in Studio on 2026-11-10 with these exact fixtures (.github/smoke/inputs/).
+  # The tools only read files from their input directory, so inline prompt inputs failed.
+  ase: [cu2.xyz]
+  pyscf: [water.xyz]
+  spglib: [nacl.cif]
+  openbabel: [molecules.smi]
+  rxnmapper: [reactions.txt]
+  tellurium: [decay.ant]
+  copasi-basico: [decay.xml]
   # October 22 operations reached these tools without usable mounted inputs.
   # Entries intentionally remain blocked until a NEW asset manifest stages them.
   boltzgen: [agents/boltzgen/tools/boltzgen/example-input-files/1g13.cif]
@@ -73,6 +82,10 @@ inputs:
   rtl-ivlg-linter: [counter16.v]
   rtl-yosys-syn: [counter16.v]
   stat-agent: [dg_predictions.csv]
+  # Run 2026-11-13 fixes: these tools read only their input directory, so inline data never reached them.
+  matchms: [spectra.mgf]
+  mordred: [aspirin.smi]
+  r-statistics-agent: [observations.csv]
   # Gate-level SKY130 netlist; produced by the rtl-yosys-syn run, then staged.
   opensta: [counter16_sky130_netlist.v]
   # Paired CFD-vs-PIV planar CSV; format must come from the agent's author.

@@ -1,0 +1,2 @@
+CC(=O)O.OCC>>CC(=O)OCC.O
+CC(=O)Cl.NC>>CC(=O)NC.Cl

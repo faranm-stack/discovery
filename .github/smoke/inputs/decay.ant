@@ -1,0 +1,4 @@
+model decay
+  J1: A -> B; k1*A
+  A = 10; B = 0; k1 = 0.1
+end

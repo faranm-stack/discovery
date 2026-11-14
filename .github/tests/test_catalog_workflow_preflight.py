@@ -624,7 +624,12 @@ def test_workflow_structure_and_privacy():
     # BaseLoader avoids YAML 1.1 treating 'on' as a boolean.
     sweep = yaml.load((ROOT / ".github/workflows/catalog-smoke-sweep.yml").read_text(), Loader=yaml.BaseLoader)
     report = yaml.load((ROOT / ".github/workflows/agent-report-card.yml").read_text(), Loader=yaml.BaseLoader)
-    assert sweep["on"]["schedule"] == [{"cron": "0 8 * * 1,4"}]
+    # Every other Monday: cron fires weekly; the cadence job skips odd ISO weeks for schedules only.
+    assert sweep["on"]["schedule"] == [{"cron": "0 8 * * 1"}]
+    cadence = sweep["jobs"]["cadence"]["steps"][0]["run"]
+    assert "%V" in cadence and "week % 2" in cadence and '"schedule"' in cadence
+    assert sweep["jobs"]["plan"]["needs"] == "cadence"
+    assert sweep["jobs"]["plan"]["if"] == "needs.cadence.outputs.run == 'true'"
     assert sweep["on"]["workflow_dispatch"]["inputs"]["mode"]["default"] == "plan"
     live = sweep["jobs"]["sweep"]
     assert live["environment"] == "catalog-smoke" and int(live["timeout-minutes"]) >= 300
