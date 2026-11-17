@@ -17,10 +17,13 @@ def main() -> int:
     p.add_argument("--evidence", required=True, type=Path)
     p.add_argument("--pilot", required=True, type=Path)
     p.add_argument("--out", default="report-card", type=Path)
+    p.add_argument("--only", default="", help="report only this agent")
     a = p.parse_args()
 
     rows = []
     for r in csv.DictReader(a.pilot.open(encoding="utf-8")):
+        if a.only and r["agent"] != a.only:
+            continue
         d = a.evidence / r["label"]
         summary = next(d.rglob("summary.txt"), None) if d.exists() else None
         text = summary.read_text(encoding="utf-8", errors="replace") if summary else ""
