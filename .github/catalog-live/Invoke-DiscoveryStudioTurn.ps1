@@ -137,7 +137,8 @@ if ($inputs.Status -eq 200) { Set-Content -Encoding utf8 (Join-Path $runDir 'inp
 
 $summary = [Collections.Generic.List[string]]::new()
 $summary.Add("status=$($body.status) model=$($body.model) agent=$($body.agent_reference.name) version=$($body.agent_reference.version)")
-if ($body.usage) { $summary.Add("usage input=$($body.usage.input_tokens) output=$($body.usage.output_tokens)") }
+$summary.Add("studio project=$Project investigation=$Investigation conversation=$Conversation")
+if ($body.usage) { $summary.Add("usage input=$($body.usage.input_tokens) output=$($body.usage.output_tokens) cached=$([int]$body.usage.input_tokens_details.cached_tokens)") }
 foreach ($item in @($body.output)) {
   switch ($item.type) {
     'function_call' {

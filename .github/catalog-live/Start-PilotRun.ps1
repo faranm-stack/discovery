@@ -40,8 +40,9 @@ $results = $rows | ForEach-Object -ThrottleLimit $Parallel -Parallel {
     $extra = @('-StorageAssetId', "/subscriptions/$env:AZURE_SUBSCRIPTION_ID/resourceGroups/$env:DISCOVERY_RESOURCE_GROUP/providers/Microsoft.Discovery/storageContainers/$env:DISCOVERY_STORAGE_CONTAINER/storageAssets/$($row.asset)")
   }
   $start = Get-Date
+  $display = if ($env:GITHUB_RUN_ID) { "CI run $env:GITHUB_RUN_ID - $($row.agent)" } else { "$($row.label) ($($row.agent))" }
   Write-Host "START $($row.agent) ($($row.label))"
-  pwsh -NoProfile -File $turn -Project $proj -Agent $row.agent -Label $row.label -Prompt $row.prompt -OutDir $dir @extra *> (Join-Path $dir 'console.txt')
+  pwsh -NoProfile -File $turn -Project $proj -Agent $row.agent -Label $row.label -Prompt $row.prompt -OutDir $dir -InvestigationDisplayName $display @extra *> (Join-Path $dir 'console.txt')
   $code = $LASTEXITCODE
   $secs = [int]((Get-Date) - $start).TotalSeconds
   Write-Host "END   $($row.agent) exit=$code ${secs}s"

@@ -43,6 +43,7 @@ jobs:
       PARALLEL: ${{ inputs.parallel || '4' }}
       MODEL_PRICE_IN: ${{ vars.MODEL_PRICE_IN }}
       MODEL_PRICE_OUT: ${{ vars.MODEL_PRICE_OUT }}
+      STUDIO_URL: ${{ vars.STUDIO_URL }}
       AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       DISCOVERY_RESOURCE_GROUP: ${{ vars.DISCOVERY_RESOURCE_GROUP }}
       DISCOVERY_SUPERCOMPUTER: ${{ vars.DISCOVERY_SUPERCOMPUTER }}
@@ -71,16 +72,18 @@ jobs:
       - name: Report card
         if: always() && env.GO == 'true'
         run: |
-          price=()
-          if [ -n "$MODEL_PRICE_IN" ] && [ -n "$MODEL_PRICE_OUT" ]; then price=(--price-in "$MODEL_PRICE_IN" --price-out "$MODEL_PRICE_OUT"); fi
+          # Prices default to Azure list prices in the script; repo variables override them.
+          extra=()
+          if [ -n "$MODEL_PRICE_IN" ]; then extra+=(--price-in "$MODEL_PRICE_IN"); fi
+          if [ -n "$MODEL_PRICE_OUT" ]; then extra+=(--price-out "$MODEL_PRICE_OUT"); fi
+          if [ -n "$STUDIO_URL" ]; then extra+=(--studio-url "$STUDIO_URL"); fi
           python .github/catalog-live/build_live_report_card.py --evidence "$CATALOG_EVIDENCE_DIR" \
-            --pilot ".github/catalog-live/$LIST" --only "$ONLY" --out report-card "${price[@]}"
-          sed '/^## /,$d' report-card/report-card.md >> "$GITHUB_STEP_SUMMARY"
+            --pilot ".github/catalog-live/$LIST" --only "$ONLY" --out report-card "${extra[@]}"
+          cat report-card/report-card.md >> "$GITHUB_STEP_SUMMARY"
+      # Only the report card is published. Agent output stays in Studio (private to the workspace).
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: catalog-live-${{ github.run_id }}
-          path: |
-            evidence/
-            report-card/
+          name: report-card-${{ github.run_id }}
+          path: report-card/
           if-no-files-found: ignore
