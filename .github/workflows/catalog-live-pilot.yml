@@ -1,0 +1,77 @@
+name: Catalog Live Pilot (Studio)
+
+# Runs the pilot agents through Discovery Studio, builds a report card, and optionally syncs failures to ADO.
+# Auth is OIDC to the Entra app discovery-catalog-ci; no stored secret. The catalog-live environment
+# requires a reviewer, so every run is approved by a person before it spends compute.
+on:
+  workflow_dispatch:
+    inputs:
+      list:
+        description: Agent list to run
+        type: choice
+        options: [live-catalog.csv, pilot.csv, retry-inputs.csv]
+        default: live-catalog.csv
+      only:
+        description: Run a single agent (blank = whole list)
+        default: ''
+      go:
+        description: Start real Studio turns (otherwise preflight and dry run only)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: catalog-live
+  cancel-in-progress: false
+
+jobs:
+  pilot:
+    environment: catalog-live
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CATALOG_EVIDENCE_DIR: ${{ github.workspace }}/evidence
+      LIST: ${{ inputs.list || 'live-catalog.csv' }}
+      GO: ${{ github.event_name == 'schedule' || inputs.go }}
+      ONLY: ${{ inputs.only }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      DISCOVERY_RESOURCE_GROUP: ${{ vars.DISCOVERY_RESOURCE_GROUP }}
+      DISCOVERY_SUPERCOMPUTER: ${{ vars.DISCOVERY_SUPERCOMPUTER }}
+      DISCOVERY_WORKSPACE_ENDPOINT: ${{ vars.DISCOVERY_WORKSPACE_ENDPOINT }}
+      DISCOVERY_STORAGE_CONTAINER: ${{ vars.DISCOVERY_STORAGE_CONTAINER }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Preflight and Studio turns
+        shell: pwsh
+        run: |
+          $a = @('-PilotCsv', "./.github/catalog-live/$env:LIST")
+          if ($env:GO -eq 'true') { $a += '-Go' }
+          if ($env:ONLY) { $a += @('-Only', $env:ONLY) }
+          ./.github/catalog-live/Start-PilotRun.ps1 @a
+      - name: Report card
+        if: always() && env.GO == 'true'
+        run: |
+          python .github/catalog-live/build_live_report_card.py --evidence "$CATALOG_EVIDENCE_DIR" \
+            --pilot ".github/catalog-live/$LIST" --out report-card
+          cat report-card/report-card.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: catalog-live-${{ github.run_id }}
+          path: |
+            evidence/
+            report-card/
+          if-no-files-found: ignore

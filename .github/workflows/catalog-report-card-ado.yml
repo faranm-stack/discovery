@@ -1,0 +1,86 @@
+name: Catalog Report Card to ADO
+
+# Manual or scheduled. Uses OIDC (no stored secret or PAT). The catalog-live environment requires reviewer approval.
+on:
+  workflow_dispatch:
+    inputs:
+      run_label:
+        description: Run label, e.g. catalog-run2-20261103
+        required: true
+      scorecard_path:
+        description: Path to the scorecard JSON in this repo
+        required: true
+      apply:
+        description: Write work items to ADO (otherwise dry run)
+        type: boolean
+        default: false
+  schedule:
+    - cron: '30 15 * * 1'  # Every other Monday (even ISO weeks), after the live run: read-only cleanup report only
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  cadence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    outputs:
+      run: ${{ steps.week.outputs.run }}
+    steps:
+      - id: week
+        run: |
+          week=$((10#$(date -u +%V)))
+          if [ "$GITHUB_EVENT_NAME" != "schedule" ] || [ $((week % 2)) -eq 0 ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  report:
+    needs: cadence
+    if: needs.cadence.outputs.run == 'true'
+    environment: catalog-live
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Read-only cleanup report
+        run: |
+          python .github/scripts/discovery_cleanup_report.py \
+            --subscription "${{ vars.AZURE_SUBSCRIPTION_ID }}" --out cleanup-report.json
+      - name: Sync scorecard to ADO
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          APPLY: ${{ inputs.apply }}
+          SCORECARD_PATH: ${{ inputs.scorecard_path }}
+          RUN_LABEL: ${{ inputs.run_label }}
+          ADO_ORG: ${{ vars.ADO_ORG }}
+          ADO_PROJECT: ${{ vars.ADO_PROJECT }}
+          ADO_FEATURE_ID: ${{ vars.ADO_FEATURE_ID }}
+        run: |
+          args=(--scorecard "$SCORECARD_PATH" --catalog . --run-label "$RUN_LABEL"
+                --report-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
+          if [ "$APPLY" = "true" ]; then
+            export ADO_TOKEN=$(az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv)
+            echo "::add-mask::$ADO_TOKEN"
+            args+=(--apply)
+          fi
+          python .github/scripts/sync_scorecard_to_ado.py "${args[@]}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: report-card-${{ github.run_id }}
+          path: cleanup-report.json
+          if-no-files-found: ignore

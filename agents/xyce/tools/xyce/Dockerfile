@@ -90,6 +90,7 @@ RUN git clone --depth 1 --branch ${XYCE_VERSION} https://github.com/Xyce/Xyce.gi
     cd /src/xyce && ./bootstrap
 RUN mkdir -p /src/xyce-build && cd /src/xyce-build && \
     /src/xyce/configure \
+        CFLAGS="-O2 -std=gnu17" \
         CXXFLAGS="-O3 -std=c++17" \
         ARCHDIR="/opt/trilinos" \
         --prefix=/opt/xyce \
