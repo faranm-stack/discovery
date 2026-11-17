@@ -2,7 +2,7 @@
 # Default is a dry run. Pass -Go to actually start turns (uses model tokens and supercomputer jobs).
 param(
   [switch]$Go,
-  [string]$Project = 'PRValidation',
+  [string]$Project = $(if ($env:DISCOVERY_PROJECT) { $env:DISCOVERY_PROJECT } else { 'weekly-agent-svc-test' }),
   [string]$PilotCsv = "$PSScriptRoot\pilot.csv",
   [string]$Only,
   [ValidateRange(1, 8)][int]$Parallel = 4
@@ -34,7 +34,8 @@ $results = $rows | ForEach-Object -ThrottleLimit $Parallel -Parallel {
   $row = $_; $out = $using:out; $turn = $using:turn
   $dir = Join-Path $out $row.label
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
-  $proj = if ($row.project) { $row.project } else { $using:Project }
+  # DISCOVERY_PROJECT wins over the list so every turn lands in the test project, never a shared one.
+  $proj = if ($env:DISCOVERY_PROJECT) { $env:DISCOVERY_PROJECT } elseif ($row.project) { $row.project } else { $using:Project }
   $extra = @()
   if ($row.PSObject.Properties['asset'] -and $row.asset) {
     $extra = @('-StorageAssetId', "/subscriptions/$env:AZURE_SUBSCRIPTION_ID/resourceGroups/$env:DISCOVERY_RESOURCE_GROUP/providers/Microsoft.Discovery/storageContainers/$env:DISCOVERY_STORAGE_CONTAINER/storageAssets/$($row.asset)")
