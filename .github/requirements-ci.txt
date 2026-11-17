@@ -3,11 +3,11 @@
 aiohttp==3.14.5
 azure-identity==1.26.0
 codespell==2.4.3
-dnspython==2.9.0
+dnspython==2.9.2
 jsonschema==4.26.0
 onnx==1.23.2
 picklescan==1.0.5
-pytest==9.1.1
+pytest==9.2.0
 pytest-xdist==3.8.0
 pyyaml==6.0.3
 referencing==0.37.0

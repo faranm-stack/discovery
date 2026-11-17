@@ -1,11 +1,12 @@
 """Security contracts for read-only PR validation and privileged reporting."""
 
+import json
 from pathlib import Path
 import re
+import subprocess
 
 import pytest
 import yaml
-
 
 WORKFLOW_PATH = Path(__file__).resolve().parents[1] / "workflows" / "pr-review.yml"
 REPORT_WORKFLOW_PATH = WORKFLOW_PATH.with_name("pr-review-report.yml")
@@ -44,34 +45,24 @@ def test_untrusted_jobs_do_not_checkout_before_shell_execution():
     assert "trufflehog git file:///tmp/pr-history" in command
 
 
-def test_author_trust_signals_are_passed_to_validator():
+def test_validation_does_not_depend_on_author_trust_signals():
     workflow = load_workflow()
     classify = workflow["jobs"]["classify"]
-    permission_step = next(
-        step for step in classify["steps"] if step.get("id") == "author_permission"
+    assert "author_permission" not in classify["outputs"]
+    assert "author_association" not in classify["outputs"]
+    assert not any(
+        step.get("id") == "author_permission" for step in classify["steps"]
     )
-
-    assert "getCollaboratorPermissionLevel" in permission_step["with"]["script"]
-    assert classify["outputs"]["author_permission"] == (
-        "${{ steps.author_permission.outputs.permission }}"
-    )
-    assert classify["outputs"]["author_association"] == (
-        "${{ steps.author_permission.outputs.association }}"
-    )
-    assert "github.rest.pulls.get" in permission_step["with"]["script"]
-    assert "response.data.author_association" in permission_step["with"]["script"]
 
     validator = next(
         step
         for step in workflow["jobs"]["validate"]["steps"]
         if step.get("id") == "run_validator"
     )
-    assert validator["env"]["PR_AUTHOR_PERMISSION"] == (
-        "${{ needs.classify.outputs.author_permission || 'unknown' }}"
-    )
-    assert validator["env"]["PR_AUTHOR_ASSOCIATION"] == (
-        "${{ needs.classify.outputs.author_association || 'NONE' }}"
-    )
+    assert "PR_AUTHOR_PERMISSION" not in validator["env"]
+    assert "PR_AUTHOR_ASSOCIATION" not in validator["env"]
+    assert "PR_AUTHOR" in validator["env"]
+    assert "PR_HEAD_REF" in validator["env"]
 
 
 def test_reporter_executes_only_default_branch_code():
@@ -140,11 +131,18 @@ def owners_for_path(path: str) -> list[str]:
         if not fields:
             continue
         pattern = fields[0]
-        # This policy uses only a global default and rooted directory overrides.
+        # This policy uses only a global default and rooted, wildcard-free
+        # directory (trailing "/") or exact-file overrides.
         assert pattern == "*" or (
-            pattern.startswith("/") and pattern.endswith("/")
+            pattern.startswith("/") and "*" not in pattern
         )
-        if pattern == "*" or path.startswith(pattern[1:]):
+        if pattern == "*":
+            matches = True
+        elif pattern.endswith("/"):
+            matches = path.startswith(pattern[1:])
+        else:
+            matches = path == pattern[1:]
+        if matches:
             owners = fields[1:]
     return owners
 
@@ -153,10 +151,16 @@ def owners_for_path(path: str) -> list[str]:
     "README.md",
     "docs/ordinary-guide.md",
     ".github/CODEOWNERS",
+    ".github/skills/demo/SKILL.md",
+    "skills-other/demo/scripts/build.sh",
     ".github/workflows/pr-review.yml",
     ".github/scripts/validate_pr.py",
     ".github/tests-other/test_example.py",
     ".github/policy/baseline.json",
+    ".github/dependabot.yml",
+    ".github/requirements-other.txt",
+    ".github/scripts/requirements-ci.txt",
+    ".config/other-tool.json",
     "docs/validation-baseline-debt.md",
     "docs/schemas/agent.schema.json",
     ".auto-registry/agents.json",
@@ -184,8 +188,13 @@ def test_utilities_use_engineering_reviewers(path):
 @pytest.mark.parametrize("path", [
     ".github/tests/test_pr_review_workflow_security.py",
     ".github/tests/rules/test_pol_016.py",
+    ".github/requirements-ci.txt",
+    ".config/dotnet-tools.json",
     "agents/molecule-visualization/agent.yaml",
     "starter-kits/example/kit.json",
+    "skills/example/SKILL.md",
+    "skills/example/scripts/build.sh",
+    "skills/example/templates/main.tex",
 ])
 def test_catalog_and_tests_allow_contributions_reviewers(path):
     assert owners_for_path(path) == [
