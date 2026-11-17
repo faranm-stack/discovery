@@ -18,6 +18,9 @@ on:
         description: Start real Studio turns (otherwise preflight and dry run only)
         type: boolean
         default: false
+      parallel:
+        description: Agents to run at the same time (1-8)
+        default: '4'
 
 permissions:
   contents: read
@@ -37,6 +40,9 @@ jobs:
       LIST: ${{ inputs.list || 'live-catalog.csv' }}
       GO: ${{ github.event_name == 'schedule' || inputs.go }}
       ONLY: ${{ inputs.only }}
+      PARALLEL: ${{ inputs.parallel || '4' }}
+      MODEL_PRICE_IN: ${{ vars.MODEL_PRICE_IN }}
+      MODEL_PRICE_OUT: ${{ vars.MODEL_PRICE_OUT }}
       AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       DISCOVERY_RESOURCE_GROUP: ${{ vars.DISCOVERY_RESOURCE_GROUP }}
       DISCOVERY_SUPERCOMPUTER: ${{ vars.DISCOVERY_SUPERCOMPUTER }}
@@ -60,13 +66,16 @@ jobs:
           $a = @{ PilotCsv = "./.github/catalog-live/$env:LIST" }
           if ($env:GO -eq 'true') { $a.Go = $true }
           if ($env:ONLY) { $a.Only = $env:ONLY }
+          $a.Parallel = [int]$env:PARALLEL
           ./.github/catalog-live/Start-PilotRun.ps1 @a
       - name: Report card
         if: always() && env.GO == 'true'
         run: |
+          price=()
+          if [ -n "$MODEL_PRICE_IN" ] && [ -n "$MODEL_PRICE_OUT" ]; then price=(--price-in "$MODEL_PRICE_IN" --price-out "$MODEL_PRICE_OUT"); fi
           python .github/catalog-live/build_live_report_card.py --evidence "$CATALOG_EVIDENCE_DIR" \
-            --pilot ".github/catalog-live/$LIST" --only "$ONLY" --out report-card
-          cat report-card/report-card.md >> "$GITHUB_STEP_SUMMARY"
+            --pilot ".github/catalog-live/$LIST" --only "$ONLY" --out report-card "${price[@]}"
+          sed '/^## /,$d' report-card/report-card.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
