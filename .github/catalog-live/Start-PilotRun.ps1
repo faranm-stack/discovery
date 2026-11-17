@@ -11,7 +11,9 @@ $turn = Join-Path $PSScriptRoot 'Invoke-DiscoveryStudioTurn.ps1'
 $stamp = Get-Date -Format 'yyyyMMdd-HHmm'
 $out = if ($env:CATALOG_EVIDENCE_DIR) { $env:CATALOG_EVIDENCE_DIR } else { Join-Path $PSScriptRoot "evidence-$stamp" }
 
-& "$PSScriptRoot\Preflight.ps1" -PilotCsv $PilotCsv
+$pre = @{ PilotCsv = $PilotCsv }
+if ($Only) { $pre.Only = $Only }
+& (Join-Path $PSScriptRoot 'Preflight.ps1') @pre
 if ($LASTEXITCODE -ne 0 -and $Go -and -not $Only) {
   Write-Host 'Preflight failed. Fix it, remove the failing rows, or run one agent with -Only <agent>.' -ForegroundColor Red; exit 1
 }

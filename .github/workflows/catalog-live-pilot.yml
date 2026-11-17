@@ -57,9 +57,9 @@ jobs:
       - name: Preflight and Studio turns
         shell: pwsh
         run: |
-          $a = @('-PilotCsv', "./.github/catalog-live/$env:LIST")
-          if ($env:GO -eq 'true') { $a += '-Go' }
-          if ($env:ONLY) { $a += @('-Only', $env:ONLY) }
+          $a = @{ PilotCsv = "./.github/catalog-live/$env:LIST" }
+          if ($env:GO -eq 'true') { $a.Go = $true }
+          if ($env:ONLY) { $a.Only = $env:ONLY }
           ./.github/catalog-live/Start-PilotRun.ps1 @a
       - name: Report card
         if: always() && env.GO == 'true'

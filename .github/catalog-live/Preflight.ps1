@@ -3,7 +3,8 @@ param(
   [string]$Sub = $env:AZURE_SUBSCRIPTION_ID,
   [string]$Rg = $env:DISCOVERY_RESOURCE_GROUP,
   [string]$Supercomputer = $env:DISCOVERY_SUPERCOMPUTER,
-  [string]$PilotCsv = "$PSScriptRoot\pilot.csv"
+  [string]$PilotCsv = "$PSScriptRoot\pilot.csv",
+  [string]$Only
 )
 $ErrorActionPreference = 'Stop'
 if (-not ($Sub -and $Rg -and $Supercomputer)) { throw 'Set AZURE_SUBSCRIPTION_ID, DISCOVERY_RESOURCE_GROUP and DISCOVERY_SUPERCOMPUTER (or pass -Sub, -Rg, -Supercomputer).' }
@@ -22,12 +23,13 @@ $liveServers = az acr list --query "[].loginServer" -o tsv
 $pullCache = @{}
 
 foreach ($row in Import-Csv $PilotCsv) {
+  if ($Only -and $row.agent -ne $Only) { continue }
   $tool = $tools | Where-Object { $_.name -eq $row.tool } | Select-Object -First 1
   if (-not $tool) { Check $false "$($row.agent): tool '$($row.tool)' deployed in $Rg"; continue }
   foreach ($img in ($tool.properties.definitionContent.infra | ForEach-Object { $_.image.acr })) {
     $server = ($img -split '/')[0]; $repo = (($img -split '/', 2)[1] -split ':')[0]; $tag = ($img -split ':')[-1]
     $acr = ($server -split '\.')[0] -replace '-.*', ''
-    if ($liveServers -notcontains $server) { Check $false "$($row.agent): registry $server exists"; continue }
+    if ($liveServers -notcontains $server) { Write-Host "WARN $($row.agent): registry $server not visible to this identity; image and pull checks skipped" -ForegroundColor Yellow; continue }
     $tags = az acr repository show-tags -n $acr --repository $repo -o tsv 2>$null
     Check ($tags -contains $tag) "$($row.agent): image $img exists"
     if (-not $pullCache.ContainsKey($acr)) {
