@@ -48,14 +48,13 @@ updates:
       - "automated-dep-update"
     commit-message:
       prefix: "chore(dotnet)"
+    cooldown:
+      default-days: 7
 
-  # Python dependencies used by catalog validation and contributed agents.
+  # Python dependencies used by catalog validation.
   - package-ecosystem: "pip"
     directories:
       - "/.github"
-      - "/agents/gwp-predictor/training"
-      - "/agents/molecule-visualization/tools/molecule-visualization"
-      - "/agents/zinc/tools/zinc"
     schedule:
       interval: "weekly"
       day: "tuesday"
@@ -77,8 +76,49 @@ updates:
       - "automated-dep-update"
     commit-message:
       prefix: "chore(python)"
+    cooldown:
+      default-days: 7
 
-  # Track base images in catalog tools.
+  # Python dependencies of contributed agents. Agent owners make major
+  # upgrades; update-type ignore rules do not block security updates.
+  - package-ecosystem: "pip"
+    directories:
+      - "/agents/gwp-predictor/training"
+      - "/agents/molecule-visualization/tools/molecule-visualization"
+      - "/agents/zinc/tools/zinc"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "08:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
+    # Leave ">=" minimums alone when they already allow the new release.
+    # Exact "==" pins are still bumped.
+    versioning-strategy: increase-if-necessary
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      agent-pip-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      agent-pip-security:
+        applies-to: "security-updates"
+        patterns:
+          - "*"
+    labels:
+      - "automated-dep-update"
+    commit-message:
+      prefix: "chore(python)"
+    cooldown:
+      default-days: 7
+
+  # Track base images in catalog tools. Owners make OS, runtime and major
+  # image upgrades; patch and digest updates still arrive weekly.
   - package-ecosystem: "docker"
     directories:
       - "/agents/*/tools/*"
@@ -88,6 +128,29 @@ updates:
       time: "07:00"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 3
+    ignore:
+      # For example Ubuntu 22.04 -> 26.04 or CUDA 12 -> 13.
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+      # For these images a minor tag change is a runtime or OS upgrade, for
+      # example Python 3.12 -> 3.15, CUDA 13.4 -> 13.5, R 4.5 -> 4.6 or
+      # Ubuntu 26.04 -> 26.10. "*python" also matches the Azure Linux images.
+      - dependency-name: "*python"
+        update-types:
+          - "version-update:semver-minor"
+      - dependency-name: "nvidia/cuda"
+        update-types:
+          - "version-update:semver-minor"
+      - dependency-name: "r-base"
+        update-types:
+          - "version-update:semver-minor"
+      - dependency-name: "pytorch/pytorch"
+        update-types:
+          - "version-update:semver-minor"
+      - dependency-name: "ubuntu"
+        update-types:
+          - "version-update:semver-minor"
     groups:
       docker-minor-patch:
         patterns:
@@ -103,6 +166,8 @@ updates:
       - "automated-dep-update"
     commit-message:
       prefix: "chore(images)"
+    cooldown:
+      default-days: 7
 
   # The Supercomputer CLI uses uv and has active security advisories.
   - package-ecosystem: "uv"
@@ -128,3 +193,5 @@ updates:
       - "automated-dep-update"
     commit-message:
       prefix: "chore(uv)"
+    cooldown:
+      default-days: 7
