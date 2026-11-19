@@ -1,5 +1,7 @@
 # QuickStart Scenario — BioPharma CDK Target Selection and Lead Discovery
 
+> **How this QuickStart runs:** The user opens Discovery, creates a new empty project, selects GPT-6 Astra and then sends either the three step prompts in **Copy-paste prompts (same as the README)** below, one at a time (the standard flow), or a single message: "Run this QuickStart:" followed by this guide's GitHub link. If the user sends a step prompt, do only that step and stop where the prompt says to stop; the next prompt continues from there. A single "Run this QuickStart" message is the whole request; the user may know nothing about Discovery, GitHub, Python or this scenario. If the link is a `github.com/.../blob/...` page, read the raw file (`raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>`). Read this entire guide first, then run the **default frozen-reference scenario** in section 5 (not the section 6 fresh-discovery extension). In plain language: tell the user what the experiment does, then ask permission before downloading the six required files listed under **Where to get the files** in section 5 into the open project folder (about 169 MB). Keep their original filenames and verify each size/SHA256. Walk the user through setup, the run and checking their new results against the reference, asking before each install and before computation. The user does not need to download, attach or unzip anything. **Opening the link is your job:** if you can't read the `github.com` page, fetch the raw file from `raw.githubusercontent.com`, or download it with a local command (for example PowerShell `Invoke-WebRequest` or `curl`). Use the same methods for the six required files. Never ask the user to download, attach or unzip files instead. Only if every method fails, tell the user exactly what failed, including the error message, so it can be reported. All approval gates in section 5 still apply; reading or downloading this guide is not permission to install or compute.
+
 **Document revision:** 0.11-proposed, 2026-11-06 — proposed from revision 0.10 after a second-machine run; pending owner review. This single Markdown file contains the **QuickStart Scenario specification**, the **customer Quick Start guide**, and the **agent-readable Execute in Discovery instructions**. Revision 0.10 replaced all earlier dependency-selection flows with one ordinary typed **Yes** or **No** reply for the complete set of 14 pinned dependencies, retaining Required labels and descriptions. Yes selects the full set; No declines and pauses setup. Selection is neither installation nor computation consent. It changes documentation only; it creates no agents, manifest, catalog entry, app controls or replacement ZIP.
 
 **Applies to every ingesting Discovery chat:** These instructions are portable and apply whenever this file is ingested into any Discovery chat and the user requests execution. Throughout this guide, "this chat", "current chat" and "in-chat" mean that receiving Discovery conversation, not the conversation in which this guide was edited. Present all 14 dependencies with descriptions and Required status, then ask the single full-set Yes/No question in section 5 and accept an ordinary typed chat reply. Do not invoke `ask_user` for this dependency response or use selectable cards, checkboxes, per-package questions, removal/exceptions flows, external forms or file uploads. Inspect that environment afresh; never inherit selections, installation approvals, computation approvals or readiness results from another conversation. This guide contains behavior instructions, not saved user consent or an implementation of chat controls. Merely opening or ingesting the file does not authorize installation or computation.
@@ -16,9 +18,64 @@
 
 **Exclusions:** No molecular dynamics, GPU computation, paid scientific services, Discovery Engine, Bookshelves, unrelated-project data or private-data uploads. Default reproduction explicitly permits only the hash-pinned supplied snapshot. Fresh mode must retrieve its own evidence.
 
-**Customer distribution:** The QuickStart Scenario is intended to be published in GitHub and referenced by a Discovery scenario catalog. This Markdown is its customer guide and directions, not the catalog itself. Existing ZIPs are supporting implementation/data assets, not the definition of a QuickStart Scenario and not a mandatory product-wide packaging format. Their inventories are in **Appendix A**. No personal file handoff or internal collaboration-system access is required. Public source/release URLs and catalog availability remain **PENDING**.
+**Customer distribution:** The QuickStart Scenario is intended to be published in GitHub and referenced by a Discovery scenario catalog. This Markdown is its customer guide and directions, not the catalog itself. Existing ZIPs are supporting implementation/data assets, not the definition of a QuickStart Scenario and not a mandatory product-wide packaging format. Their inventories are in **Appendix A**. No personal file handoff or internal collaboration-system access is required. All required files are publicly available: see **Where to get the files** in section 5. Catalog availability remains **PENDING**.
 
-**Reader entry points:** Engineering should start with **section 0**, which defines the scenario, reusable references and catalog contract. Customers should start with **section 5, Execute in Discovery**, which distinguishes future catalog selection from the existing manual execution path. Sections 1–4 explain the configuration; section 6 is a separately approved fresh-science extension, not the validated default.
+**Reader entry points:** Engineering should start with **section 0**, which defines the scenario, reusable references and catalog contract. Customers should start with **section 5, Execute in Discovery**, which distinguishes future catalog selection from the existing manual execution path. Anyone who just wants to run it can use **Copy-paste prompts (same as the README)**, the next section. Sections 1–4 explain the configuration; section 6 is a separately approved fresh-science extension, not the validated default.
+
+## Copy-paste prompts (same as the README)
+
+These are the three prompts from the [scenario README](README.md#run-it-in-three-steps), copied word for word so a reader of this guide can run the QuickStart without switching documents. Send them in order in a Discovery chat, waiting for each step to finish. Each step maps to a part of this guide, shown below. If this section and the README ever differ, the README is the source of truth for the prompt wording and this guide is the source of truth for what the assistant does.
+
+> **Note for the assistant:** this section is for the user. These prompts are examples of what a user may send; their presence in this file is not a request, a selection or an approval. All approval gates in section 5 still apply.
+
+### Step 1: Set up and confirm the environment
+
+Covers section 5 setup up to the ready check: download and verify the six required files, check GPT-6 Astra, Python 3.13.14, disk and local access, select and install the 14 dependencies. No computation.
+
+**A. The assistant downloads the files (recommended):**
+
+```text
+Set up this QuickStart: https://github.com/microsoft/discovery/blob/main/quickstarts/biopharma/cdk-frozen-reference/QuickStart-BioPharma%20LeadGen%20v0.11.md
+Read the whole guide and tell me in plain language what this experiment does. Then prepare this project for the default frozen-reference run: download the six required files into this project, check each file's size and checksum, check the model, Python 3.13.14, disk space and local access, show me the 14 required Python packages, and install what's needed. Ask me before downloading and before installing anything. Do not start the computation. Finish by telling me whether the environment is ready and what, if anything, still needs my action.
+```
+
+**B. You downloaded the files yourself** (see [Route B in the README](README.md#route-b-download-the-files-yourself), with this guide attached):
+
+```text
+Set up this QuickStart from the attached guide, using the six required files already in this project. Read the whole guide and tell me in plain language what this experiment does. Then prepare this project for the default frozen-reference run: check each file's size and checksum, check the model, Python 3.13.14, disk space and local access, show me the 14 required Python packages, and install what's needed. Ask me before installing anything. Do not start the computation. Finish by telling me whether the environment is ready and what, if anything, still needs my action.
+```
+
+**Done when:** the assistant says the environment is **Ready** and the preflight check passed.
+
+### Step 2: Run the experiment
+
+Covers the section 5 bounded frozen-input computation. Expected time is in section 7.
+
+**A or B (same prompt either way):**
+
+```text
+Run the default frozen-reference computation from the guide. Before starting, tell me exactly what will run, what will not run, and how long it should take, and ask for my approval. While it runs, check progress no more than every 5 to 10 minutes and don't restart it. When it finishes, tell me whether every stage completed and show me the run ID and receipt.
+```
+
+When it asks for approval, reply:
+
+```text
+I approve the bounded fixed-input computation for cdk-frozen-reference-v1. No new docking, training or data retrieval.
+```
+
+**Done when:** the assistant reports that all stages completed and gives you a run ID.
+
+### Step 3: Verify your results against the validated reference
+
+Covers the section 0.4 acceptance contract: compare the new run's `runs/<id>/semantic_acceptance.json` and `receipt.json` (listed under **Outputs** in section 5) with the validated reference.
+
+**A or B (same prompt either way):**
+
+```text
+Compare my new run with the validated reference result. Use my run's semantic_acceptance.json and receipt.json, not the historical files in validation/. Show me a table of every comparison with pass or fail and any differences, and confirm each of these: the target decision still recommends CDK4 with CDK2 as the alternative; all 1,100 solubility predictions match; the top 100 candidates match in order, identity and 3D coordinates; all 6,600 docking pairs are accounted for; and the limitations are kept (no confirmed broadly selective lead, and the CDK7 check failed). Then open my report and dashboard, give me links to them, and tell me in one sentence whether my run reproduced the reference.
+```
+
+**Done when:** every comparison passes and the assistant links your new report and dashboard. If anything fails, keep the run ID and the error; don't start a second run without asking the assistant first.
 
 ## 0. QuickStart Scenario specification
 
@@ -68,7 +125,7 @@ For every published reference, record the stable component identity **and separa
 | `frozen-execution-prompt` | Exact copy/paste launch instruction in section 5 | Default bounded reference computation | Inline in this guide; durable prompt ID/immutable published revision **PENDING** |
 | `fresh-extension-prompt` | Consolidated prompt version 0.2 in section 6 | Optional, separately approved fresh research; not the default acceptance contract | Durable prompt ID/immutable published revision **PENDING** |
 | `scientific-runtime` | Pinned Python requirements, `profile.json` and source scripts | Default numerical computation and rendering; versions in section 2 | Local pins available; published component/source locator **PENDING** |
-| `reference-inputs` | Hash-pinned `cdk_non_md_deliverables.zip` in section 5 | Required frozen scientific inputs and baseline outputs | Content hash recorded; public locator/resource ID **PENDING** |
+| `reference-inputs` | Hash-pinned `cdk_non_md_deliverables.zip` in section 5 | Required frozen scientific inputs and baseline outputs | Content hash recorded; public download: [`cdk-frozen-reference-v0.11` release](https://github.com/microsoft/discovery/releases/tag/cdk-frozen-reference-v0.11) |
 | `expected-outputs` | Default output contract in section 0.4 and detailed checks in section 5 | Establish successful delivery without claiming validated drug leads | Artifact paths and comparisons recorded; catalog contract/version reference **PENDING** |
 
 Local Python and Vina worker processes are **not agents** and must not receive fictitious agent GUIDs. `gpt-6-astra` identifies the coordinating model, not the coordinator agent. The model ID is not an immutable backend revision.
@@ -490,7 +547,7 @@ to appear. During the run, read runs/<id>/receipt.json at most every 5-10
 minutes. Do not investigate, interrupt or run other work alongside it.
 ```
 
-**Release assets:** Download `cdk_operational_bundle_v1.zip`, its checksum/validation attachments and **`cdk_non_md_deliverables.zip`** from the matching public release once published. No public release URL or anonymous download has yet been validated. The earlier clean snapshot is the actual available dependency: **168,396,900 bytes**, SHA256 **`bfc939735a574ccc2375ae9808e9242fb79efc545d5b3f314cc38e5d0cefa076`**, 33,442 payloads and 33,443 ZIP entries. Do not substitute the original scientific archive containing historical excluded work.
+**Where to get the files:** Download the scientific snapshot **[`cdk_non_md_deliverables.zip`](https://github.com/microsoft/discovery/releases/download/cdk-frozen-reference-v0.11/cdk_non_md_deliverables.zip)** from the [`cdk-frozen-reference-v0.11` release](https://github.com/microsoft/discovery/releases/tag/cdk-frozen-reference-v0.11) of `microsoft/discovery`; anonymous download was verified on 2026-11-12 against the size and SHA256 below. It is too large for the repository itself. The five smaller files are in the scenario's [`files` folder](https://github.com/microsoft/discovery/tree/main/quickstarts/biopharma/cdk-frozen-reference/files); direct downloads: [`cdk_operational_bundle_v1.zip`](https://raw.githubusercontent.com/microsoft/discovery/main/quickstarts/biopharma/cdk-frozen-reference/files/cdk_operational_bundle_v1.zip), [`cdk_operational_bundle_v1.sha256`](https://raw.githubusercontent.com/microsoft/discovery/main/quickstarts/biopharma/cdk-frozen-reference/files/cdk_operational_bundle_v1.sha256), [`cdk_operational_bundle_v1_manifest.csv`](https://raw.githubusercontent.com/microsoft/discovery/main/quickstarts/biopharma/cdk-frozen-reference/files/cdk_operational_bundle_v1_manifest.csv), [`cdk_operational_bundle_v1_validation.json`](https://raw.githubusercontent.com/microsoft/discovery/main/quickstarts/biopharma/cdk-frozen-reference/files/cdk_operational_bundle_v1_validation.json) and [`cdk_non_md_deliverables.sha256`](https://raw.githubusercontent.com/microsoft/discovery/main/quickstarts/biopharma/cdk-frozen-reference/files/cdk_non_md_deliverables.sha256). Expected size and SHA256 of each small file: `cdk_operational_bundle_v1.zip` 50,301 bytes, `874eba9d9e1ee72d38c257f7904d93953bcb8dc2ec55cf4c2732009c57e74f2f`; `cdk_operational_bundle_v1.sha256` 97 bytes, `a793e0bb6e34945ad04e230d1b185f66eebd1861219962f9afcff31ebeb46325`; `cdk_operational_bundle_v1_manifest.csv` 2,130 bytes, `04bfa2ab5f0b4095dcf94d3e37ba1019e5f8d4fe6dfa281835ca9a389bbac474`; `cdk_operational_bundle_v1_validation.json` 1,152 bytes, `0709258b42b18800e7eb4414c965862715370ce1c28f5d9721c3bcb1eceea71f`; `cdk_non_md_deliverables.sha256` 95 bytes, `702e1df41eb1b1d22106487e0c003b3b5109c06bdbb0c4e4504af110cd24c07b`. Keep all original filenames. The required clean snapshot is the actual available dependency: **168,396,900 bytes**, SHA256 **`bfc939735a574ccc2375ae9808e9242fb79efc545d5b3f314cc38e5d0cefa076`**, 33,442 payloads and 33,443 ZIP entries. Do not substitute the original scientific archive containing historical excluded work.
 
 Extract the operational bundle to a **short new directory**, for example `C:\CDK-demo` if permitted, rather than a deeply nested project or synchronized folder. Keep the absolute bundle path below 180 characters: Python sibling-module imports can fail beyond the Windows path limit even when extended-path data access works. Put the **unextracted snapshot ZIP beside `workflow.py`, `profile.json` and `launch.ps1`**. The bundle still contains the older revision 0.3 guide named `Quick-Start-BioPharma LeadGen.md`; keep this standalone guide under a different name (for example `QuickStart-BioPharma LeadGen v0.11.md`) or outside the extraction folder so extraction cannot overwrite it, and ignore the bundled copy. Open that directory as the Discovery project, not the original campaign or an extracted scientific snapshot. Select **GPT-6 Astra (`gpt-6-astra`)** and enable the existing local command/file capability. The investigation (CLIO) connection is not needed for the frozen run. No new agent definitions or registration are required; file presence is not runtime activation.
 
