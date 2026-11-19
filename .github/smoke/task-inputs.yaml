@@ -62,8 +62,8 @@ inputs:
   opsin: [chemical_names.txt]
   samtools-suite: [alignments.sam]
   sirius: [unknown1.ms]
-  # HSD alone is insufficient: this task also needs the licensed/approved SK set.
-  dftbplus: [dftb_in.hsd, O-O.skf, O-H.skf, H-O.skf, H-H.skf]
+  # dftbplus needs the licensed mio-1-1 SK set (O-O, O-H, H-O, H-H .skf) with dftb_in.hsd;
+  # it is reported blocked via its prerequisite in curated-first-tasks.yaml until staged.
   cobrapy: [e_coli_core.xml]
   lammps:
     - agents/lammps/tools/lammps-cpu/example-input-files/quick-test/in.lj.ehex
@@ -86,7 +86,7 @@ inputs:
   matchms: [spectra.mgf]
   mordred: [aspirin.smi]
   r-statistics-agent: [observations.csv]
-  # Gate-level SKY130 netlist; produced by the rtl-yosys-syn run, then staged.
-  opensta: [counter16_sky130_netlist.v]
+  # opensta needs a gate-level SKY130 netlist (counter16_sky130_netlist.v) from an
+  # rtl-yosys-syn run; it is reported blocked via its prerequisite until staged.
   # Paired CFD-vs-PIV planar CSV; format must come from the agent's author.
   flowblind-research-teammate-v2: [candidate.csv]

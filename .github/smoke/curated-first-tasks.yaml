@@ -58,6 +58,7 @@ tasks:
     prompt: Run a CREST iMTD-GC conformer search with GFN2-xTB for n-butane (SMILES CCCC) and report the number of conformers and the lowest relative energies.
   dftbplus:
     action: run_dftb
+    prerequisite: Licensed mio-1-1 Slater-Koster files (O-O, O-H, H-O, H-H .skf) must be staged with dftb_in.hsd.
     prompt: Run a DFTB+ SCC single-point energy for a water molecule (O 0 0 0; H 0.757 0.586 0; H -0.757 0.586 0, in Angstrom) with mio-1-1 parameters and report the total energy.
   dssp:
     action: assign_secondary_structure
@@ -169,6 +170,8 @@ tasks:
     action: convert_formats
     prompt: Convert the attached molecules.smi to SDF with generated 3D coordinates and report how many molecules were written.
     expected_output: 3 molecules written.
+  opensta:
+    prerequisite: A gate-level SKY130 netlist (counter16_sky130_netlist.v) from an rtl-yosys-syn run must be staged.
   opsin:
     action: name_to_structure
     prompt: |
