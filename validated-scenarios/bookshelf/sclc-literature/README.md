@@ -130,10 +130,10 @@ Set up this Validated Scenario from the attached guide, using the 15 papers alre
 buttons. You don't type anything.
 
 1. **May I download the 15 papers?** Click **Yes**.
-2. When the papers pass, the assistant says it can't create the Bookshelf
-   automatically and lists the form steps below. Take your time: do the steps
-   first, and answer its question only when you're done. (If you don't see
-   the steps, expand the last **>** arrow in the chat.)
+2. When the papers pass, **you create the Bookshelf yourself** with the
+   steps below. The assistant can't do it, and its chat may hide the steps,
+   so follow them from here. Don't answer its question until you've finished
+   them. If you answer too early, click **Not yet: show me the steps**.
 
    1. In the left sidebar, click **AI capabilities** (it opens in a new tab at
       the top of the app), then **Bookshelves**, then **New bookshelf**. If a
