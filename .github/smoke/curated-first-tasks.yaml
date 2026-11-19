@@ -289,3 +289,45 @@ tasks:
     # Checked on an approved run-and-verify turn (reference equals candidate). Not asserted by the sweep yet.
     expected_run_metrics: {points: 324, pearson: 1, rmse: 0, mae: 0}
     input_sha256: {candidate.csv: 75cb751f59de4b47ed09a826d8237a33a33cb789dae7afdb9c61fe25cc23cd94}
+
+  # --- Prerequisites recorded 2026-11-19 from the 2026-11-13 full run (126 agents). ---
+  # These agents cannot be judged until the named owner provides the item; they are
+  # reported as blocked with this reason instead of a generic "no task" or author failure.
+  # Source-only GPU scaffolds (README: "source-only catalog template"; Dockerfile blocks builds).
+  allegro: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  autodock-gpu: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  cellpose: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  chgnet: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  cryodrgn: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  deepmd-kit: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  dnabert-2: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  geneformer: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  hoomd-blue: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  ligandmpnn: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  m3gnet: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  mace: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  matgl: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  nequip: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  openmm-ml: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  proteinmpnn: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  relion: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  scgpt: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  scvi-tools: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  stardist: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  topaz: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  torchani: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  uni-dock: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
+  # External services: need the publisher's connector account or API key in the lab.
+  wiley-nexus: {prerequisite: "Wiley Nexus connector (MCP) with a Wiley account must be configured in the lab; contact nexus@wiley.com."}
+  aqcat: {prerequisite: "SandboxAQ connector (MCP) with credits must be configured in the lab; contact support@sandboxaq.com."}
+  aqpotency: {prerequisite: "SandboxAQ connector (MCP) with credits must be configured in the lab; contact support@sandboxaq.com."}
+  synthesize-bio: {prerequisite: "Synthesize Bio API key/connector must be configured in the lab; contact support@synthesize.bio."}
+  # Model-only agents that rely on platform capabilities rather than a container tool.
+  online-researcher: {prerequisite: "Platform web-search capability must be enabled for the agent in the lab."}
+  patent-prior-art: {prerequisite: "Platform web/patent search capability must be enabled for the agent in the lab."}
+  bookshelf-researcher: {prerequisite: "A Bookshelf knowledge base must be attached to the test project."}
+  hardware-spec-dev: {prerequisite: "A selected core and its vendor handbook must be supplied as attached inputs."}
+  # Tools not registered in the lab.
+  chip-functional-verification: {prerequisite: "The functional-verification tool image must be registered in the lab."}
+  chip-rtl-design: {prerequisite: "The rtl-design tool image must be registered in the lab."}
+  chip-rtl-lint: {prerequisite: "The rtl-lint tool image must be registered in the lab."}
