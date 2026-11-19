@@ -4,7 +4,7 @@
 
 1. Install the [Discovery app](../../../README.md) and sign in.
 2. Create a project in a new `Downloads\Validated-Scenario-SCLC-Bookshelf` folder and click **New session**.
-3. Select **GPT-6 Astra**.
+3. Select **GPT-6 Astra**, or its newer version if it's no longer listed.
    *(Prefer to download the papers yourself? Do [option B](#option-b-download-the-files-yourself) here.)*
 4. Send the [Step 1 prompt](#step-1-set-up-and-confirm-the-environment): download the papers and build the Bookshelf.
 5. Send the [Step 2 prompt](#step-2-run-the-experiment): ask the research question.
@@ -36,7 +36,7 @@ these 15 papers.
 | --- | --- |
 | Discovery app | Download it from the [Discovery download page](../../../README.md) and follow the [install guide](../../../docs/discovery-app/install.md). |
 | Sign-in | A GitHub account with a GitHub Copilot subscription. |
-| Model | **GPT-6 Astra** (`gpt-6-astra`). Choose it in the chat's model menu. |
+| Model | Validated with **GPT-6 Astra** (`gpt-6-astra`). If it's no longer in the model menu, choose its newer version or an equivalent model. |
 | Computer | Windows 11, 64-bit. Tested on Windows 11 x64 (two complete runs, 2026-11-18); other systems not tested. |
 | Disk space | About 1 GB free. |
 | Internet | Needed to download about 18 MB of papers. |
@@ -74,7 +74,7 @@ CC BY 4.0. They are not stored in this repository.
    OneDrive-synced folders such as Documents or Desktop.)
 3. **Open a chat.** Click **New session** on the left.
 4. **Select the model.** In the chat box, open the model menu and choose
-   **GPT-6 Astra**.
+   **GPT-6 Astra** (or its newer version if it's no longer listed).
 
 ## Run it in three steps
 
@@ -142,7 +142,7 @@ buttons. You don't type anything.
    2. On **1. Details**, enter **Name** `sclc-literature` and **Description**
       `Fifteen open-access papers on small-cell lung cancer treatment.` Wait for
       the model list to load, then under **Answer generation** choose **GPT-6 Astra** (if it isn't
-      listed, choose the first model). Leave **Embedding model** below it as it
+      listed, choose its newer version or an equivalent model). Leave **Embedding model** below it as it
       is. Click **Next**.
    3. On **2. Files**, click **Upload**, choose **Folder**, select the
       project's `sclc-papers` folder and confirm. Click the arrow next to
