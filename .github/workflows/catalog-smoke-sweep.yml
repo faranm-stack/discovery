@@ -16,21 +16,21 @@ on:
         options: [plan, live]
         default: plan
       max_invocations:
-        description: Explicit new-response cap (0 blocks live)
+        description: Most agents to run (0 = every agent in the latest catalog)
         type: number
         default: 0
       concurrency:
-        description: Global workers 1..4; existing lane limits remain
+        description: Agents at once, 1..4 (per-lane limits still apply; GPU runs one at a time)
         type: number
-        default: 2
+        default: 4
       allow_lanes:
-        description: Explicit approved lanes; comma-separated
+        description: Lanes to run (default is all)
         type: string
-        default: cpu
+        default: cpu,gpu_capable,resource_review,external_or_platform
       deploy_missing:
-        description: Approve isolated missing-agent registration; no overwrites
+        description: Register catalog agents missing from the test project (never overwrites)
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read
@@ -167,6 +167,13 @@ jobs:
         run: python .github/scripts/catalog_workflow_preflight.py prepare --output-dir "$RUNNER_TEMP/catalog-sweep"
       - name: Freeze offline plan before any credential use
         run: python .github/scripts/catalog_sweep.py --mode plan --output-dir "$RUNNER_TEMP/catalog-sweep"
+      - name: Size the run to the catalog (0 = every planned agent)
+        run: |
+          n=$(python -c "import json,sys;print(len(json.load(open(sys.argv[1]))['cases']))" "$RUNNER_TEMP/catalog-sweep/catalog-plan.json")
+          want="${MAX_INVOCATIONS:-0}"
+          if [ "$want" -le 0 ] || [ "$want" -gt "$n" ]; then want=$n; fi
+          echo "MAX_INVOCATIONS=$want" >> "$GITHUB_ENV"
+          echo "Running $want of $n catalog agents"
       - name: Require exact latest pinned inventory, source bytes, inputs and bounded approval
         run: |
           python .github/scripts/catalog_workflow_preflight.py gate \
