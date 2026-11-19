@@ -169,6 +169,9 @@ def build_plan(repo, manifest, *, batch_size=None, concurrency=4):
             "live_ready": False, "blockers": blockers, "source_fingerprints": fingerprints,
             **({"prerequisite_blocker": "external_prerequisite: " + prerequisites[item["name"]]}
                if item["name"] in prerequisites else {}),
+            # Agents with no own tool are judged on their answer only, when a curated check exists.
+            **({"answer_check": curated[item["name"]]["answer_check"]}
+               if status == "curated_task_selected" and isinstance(curated[item["name"]].get("answer_check"), dict) else {}),
         })
     # One catalog ledger, kit by kit, assigning a shared agent to its first kit.
     # Lane-aware scheduling may overlap independent cases within the limits.

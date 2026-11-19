@@ -121,6 +121,9 @@ def classify(row: dict) -> dict:
     reason = str(row.get("reason") or "")
     lowered = reason.lower()
     if status == "passed":
+        if "answer_only_check" in lowered:
+            # No own tool exists to prove a roundtrip; only the answer's structure was checked.
+            return {"grade": "C", "category": "answer_checked", "fix_owner": None, "suggested_fix": None}
         retried = RETRY_MARKER in lowered
         return {"grade": "B" if retried else "A", "category": "passed_after_retries" if retried else "passed",
                 "fix_owner": None, "suggested_fix": None}
@@ -282,7 +285,8 @@ def build(ledger: dict, repo: Path, history: list[dict], evict_after: int, run_l
     }
 
 
-GRADE_TEXT = {"A": "Roundtrip passed", "B": "Passed after agent retries", "F": "Roundtrip failed", "I": "Not judged"}
+GRADE_TEXT = {"A": "Roundtrip passed", "B": "Passed after agent retries",
+              "C": "Answer checked (agent has no own tool)", "F": "Roundtrip failed", "I": "Not judged"}
 
 
 def render_markdown(card: dict) -> str:
@@ -302,7 +306,9 @@ def render_markdown(card: dict) -> str:
                   f"compute {money(cost.get('compute_cost_usd'))}); tool time {cost.get('tool_seconds', 0):.0f} s; "
                   f"cost known for {cost.get('cost_known_agents', 0)}/{t['agents']} agents.", ""]
     lines += ["| Grade | Meaning | Agents |", "|---|---|---:|"]
-    for grade in ("A", "B", "F", "I"):
+    for grade in ("A", "B", "C", "F", "I"):
+        if grade == "C" and not t["grades"].get("C"):
+            continue
         lines.append(f"| {grade} | {GRADE_TEXT[grade]} | {t['grades'].get(grade, 0)} |")
     lines += ["", "| Failure category | Agents |", "|---|---:|"]
     lines += [f"| {k} | {v} |" for k, v in t["categories"].items() if not k.startswith("passed")]
@@ -347,10 +353,10 @@ def render_html(card: dict) -> str:
     from catalog_resource_labels import RESOURCE_NOTE
     e = lambda v: html.escape(str(v if v is not None else ""))
     t = card["totals"]
-    colors = {"A": "#0e6b46", "B": "#4f7d1f", "F": "#a93a3a", "I": "#8a5d00"}
+    colors = {"A": "#0e6b46", "B": "#4f7d1f", "C": "#2f6690", "F": "#a93a3a", "I": "#8a5d00"}
     tiles = "".join(
         f'<div class="tile"><b style="color:{colors[g]}">{t["grades"].get(g, 0)}</b><span>{e(g)}: {e(GRADE_TEXT[g])}</span></div>'
-        for g in ("A", "B", "F", "I"))
+        for g in ("A", "B", "C", "F", "I") if g != "C" or t["grades"].get("C"))
     rows = []
     for a in card["agents"]:
         o = a["owner"]

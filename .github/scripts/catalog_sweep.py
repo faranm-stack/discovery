@@ -361,6 +361,35 @@ def _classify_execution(report, response, operations, *, validation_logs=None):
             "remote_may_be_running": False, "assessment": assessment}
 
 
+def classify_answer_only(report, response, check):
+    """Grade an agent that has no own tool by its final answer only.
+
+    A pass means the turn completed and the answer met the curated structural check
+    (required patterns present, forbidden patterns absent, minimum length). It is not
+    proof that citations are real or that the content is scientifically correct.
+    """
+    if response.get("id") != report.get("response_id"):
+        return {"status": "uncertain", "remote_may_be_running": True, "reason": "response_id_not_verified"}
+    if pending_confirmations(response):
+        return {"status": "uncertain", "remote_may_be_running": True, "reason": "confirmation_requires_human_review"}
+    if response.get("status") != "completed":
+        return {"status": "uncertain" if response.get("status") not in TERMINAL else "failed",
+                "remote_may_be_running": response.get("status") not in TERMINAL,
+                "reason": f"answer_only_check: response {response.get('status')}"}
+    text = " ".join(c.get("text") or "" for item in response.get("output") or [] if item.get("type") == "message"
+                    for c in item.get("content") or [])
+    missing = [p for p in check.get("require") or [] if not re.search(p, text, re.IGNORECASE)]
+    forbidden = [p for p in check.get("forbid") or [] if re.search(p, text, re.IGNORECASE)]
+    short = len(text.strip()) < int(check.get("min_chars", 200))
+    base = {"tool_roundtrip": "not_applicable", "remote_may_be_running": False, "answer_chars": len(text)}
+    if missing or forbidden or short:
+        detail = "; ".join(filter(None, ["missing " + ", ".join(missing) if missing else "",
+                                         "forbidden " + ", ".join(forbidden) if forbidden else "",
+                                         "answer too short" if short else ""]))
+        return {**base, "status": "failed", "reason": "answer_only_check_failed: " + detail}
+    return {**base, "status": "passed", "reason": "answer_only_check: " + str(check.get("description") or "answer met its check")}
+
+
 def tool_anchored_prompt(base_prompt, expected_tools, lane, input_files=()):
     tools = ", ".join(expected_tools)
     prompt = (
@@ -726,7 +755,8 @@ async def execute_sweep(args, plan, store):
                 (saved / "prompt.txt").write_text(case["candidate_prompt"], encoding="utf-8")
                 result["expected_tools"] = expected_tools
                 result["deployment_agent_name"] = payload["name"]
-                if not expected_tools:
+                answer_only = not expected_tools and isinstance(case.get("answer_check"), dict)
+                if not expected_tools and not answer_only:
                     result.update(status="blocked", reason="No declared own-tool binding; native/platform capability mapping is required before a roundtrip can be proved.")
                     return result
                 for resource_id in bindings.values():
@@ -791,7 +821,7 @@ async def execute_sweep(args, plan, store):
                 if case.get("prerequisite_blocker"):
                     result.update(status="blocked", reason=case["prerequisite_blocker"])
                     return result
-                if not expected_tools:
+                if not expected_tools and not answer_only:
                     result.update(status="blocked", reason="No verifiable own-tool binding; native/platform adapter or applicability decision required.")
                     return result
                 asset_ids, unstaged = staged_inputs(case, args.input_assets)
@@ -812,8 +842,9 @@ async def execute_sweep(args, plan, store):
                           "contract": CONTRACT_ID, "catalog_revision": revision(), "source_fingerprints": case["source_fingerprints"],
                           "expected_tools": expected_tools, "investigation": investigation_name(agent_name, run_id=getattr(args, "run_label", None)),
                           "run_label": getattr(args, "run_label", None),
-                          "prompt": tool_anchored_prompt(case["candidate_prompt"], expected_tools, case["lane"],
-                                                         case.get("input_files") or ()),
+                          "prompt": (case["candidate_prompt"] if answer_only else
+                                     tool_anchored_prompt(case["candidate_prompt"], expected_tools, case["lane"],
+                                                          case.get("input_files") or ())),
                           "storage_assets": asset_ids,
                           "prompt_overlay": "documented-first-task-v4", "submission_attempted": False,
                           "server_terminal_observed": False, "client_timeout_seconds": args.timeout,
@@ -835,6 +866,10 @@ async def execute_sweep(args, plan, store):
                     result["investigation"] = report["investigation"]
                 response = json.loads((saved / "response.json").read_text(encoding="utf-8"))
                 operations = json.loads((saved / "operations.json").read_text(encoding="utf-8"))
+                if answer_only:
+                    result.update(classify_answer_only(report, response, case["answer_check"]), usage=report.get("usage"),
+                                  human_approval_pending=bool(report.get("human_approval_pending")))
+                    return result
                 decision = classify_execution(report, response, operations)
                 # Read-only wait for still-running tool operations within the same time budget,
                 # so resolvable work does not hold queue capacity. Never resubmits or cancels.

@@ -86,7 +86,10 @@ inputs:
   matchms: [spectra.mgf]
   mordred: [aspirin.smi]
   r-statistics-agent: [observations.csv]
-  # opensta needs a gate-level SKY130 netlist (counter16_sky130_netlist.v) from an
-  # rtl-yosys-syn run; it is reported blocked via its prerequisite until staged.
+  # opensta reads a hand-written 2-bit counter netlist (.github/smoke/inputs/), cells checked
+  # against the tool's bundled sky130hd_tt.lib.
+  opensta: [counter2_sky130_netlist.v]
+  # Synthetic FCS 3.1 file generated with flowio 1.4.0 (the tool's pinned version): 2000 events.
+  flow-cytometry-referee: [synthetic-sample-01.fcs]
   # Paired CFD-vs-PIV planar CSV; format must come from the agent's author.
   flowblind-research-teammate-v2: [candidate.csv]

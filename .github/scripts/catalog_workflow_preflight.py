@@ -362,7 +362,7 @@ def finalize(repo: Path, out: Path, mode: str, run_label: str) -> dict:
     for row in card["agents"]:
         raw = original_rows[row["agent"]]
         row.update(status=raw.get("status"), reason=raw.get("reason"), failing_streak=0,
-                   lifecycle="keep" if row["grade"] in {"A", "B"} else "review_required")
+                   lifecycle="keep" if row["grade"] in {"A", "B", "C"} else "review_required")
         row["owner"].update(original_owner(repo, row["agent"]))
         if row["grade"] == "I":
             row.update(category="unknown_attribution", fix_owner="triage",

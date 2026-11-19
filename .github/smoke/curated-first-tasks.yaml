@@ -171,7 +171,11 @@ tasks:
     prompt: Convert the attached molecules.smi to SDF with generated 3D coordinates and report how many molecules were written.
     expected_output: 3 molecules written.
   opensta:
-    prerequisite: A gate-level SKY130 netlist (counter16_sky130_netlist.v) from an rtl-yosys-syn run must be staged.
+    action: sta_run
+    prompt: >-
+      Run static timing analysis on the attached gate-level SKY130 netlist counter2_sky130_netlist.v
+      (top module counter2) with a 10 ns clock on clk, and report worst setup slack and whether timing is met.
+    expected_output: A timing report for counter2 with a numeric worst slack and met/violated status.
   opsin:
     action: name_to_structure
     prompt: |
@@ -318,16 +322,54 @@ tasks:
   torchani: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
   uni-dock: {prerequisite: "Source-only scaffold: no runtime image is published; the catalog maintainer must provision and release the GPU runtime."}
   # External services: need the publisher's connector account or API key in the lab.
-  wiley-nexus: {prerequisite: "Wiley Nexus connector (MCP) with a Wiley account must be configured in the lab; contact nexus@wiley.com."}
-  aqcat: {prerequisite: "SandboxAQ connector (MCP) with credits must be configured in the lab; contact support@sandboxaq.com."}
-  aqpotency: {prerequisite: "SandboxAQ connector (MCP) with credits must be configured in the lab; contact support@sandboxaq.com."}
-  synthesize-bio: {prerequisite: "Synthesize Bio API key/connector must be configured in the lab; contact support@synthesize.bio."}
-  # Model-only agents that rely on platform capabilities rather than a container tool.
-  online-researcher: {prerequisite: "Platform web-search capability must be enabled for the agent in the lab."}
-  patent-prior-art: {prerequisite: "Platform web/patent search capability must be enabled for the agent in the lab."}
-  bookshelf-researcher: {prerequisite: "A Bookshelf knowledge base must be attached to the test project."}
-  hardware-spec-dev: {prerequisite: "A selected core and its vendor handbook must be supplied as attached inputs."}
-  # Tools not registered in the lab.
-  chip-functional-verification: {prerequisite: "The functional-verification tool image must be registered in the lab."}
-  chip-rtl-design: {prerequisite: "The rtl-design tool image must be registered in the lab."}
-  chip-rtl-lint: {prerequisite: "The rtl-lint tool image must be registered in the lab."}
+  # wiley-nexus declares no own tool, so it is judged on an honest answer: without the
+  # Nexus connector it must say retrieval is unavailable and must not invent references.
+  wiley-nexus:
+    override: true
+    prompt: >-
+      Find two peer-reviewed papers on perovskite solar cell stability published since 2023 and summarise
+      their main findings with references.
+    answer_check:
+      description: honest answer without the Wiley Nexus connector (no invented references)
+      require: ['(unavailable|not available|cannot|can.t|unable|no (search|retrieval|tool|access)|not (configured|connected))']
+      forbid: ['doi:\s*10\.\d{4,}/']
+      min_chars: 80
+  aqcat: {prerequisite: "Declares the SandboxAQ MCP tool; needs a verified MCP deployment adapter and SandboxAQ credits in the lab; contact support@sandboxaq.com."}
+  aqpotency: {prerequisite: "Declares the SandboxAQ MCP tool; needs a verified MCP deployment adapter and SandboxAQ credits in the lab; contact support@sandboxaq.com."}
+  synthesize-bio: {prerequisite: "Declares the Synthesize Bio MCP tool; needs a verified MCP deployment adapter and an API key in the lab; contact support@synthesize.bio."}
+  # Agents with no own tool, judged on their answer only (grade C, never A).
+  online-researcher: {prerequisite: "Declares the native web_search tool; the sweep needs a verified native-tool deployment adapter so the agent is not tested without it."}
+  patent-prior-art:
+    override: true
+    prompt: >-
+      Stress-test this independent claim against prior art: "A beverage container comprising a body and a
+      resealable lid, wherein the lid includes a pressure-release valve that opens above 2 bar." Decompose it
+      into elements, map each element to plausible prior art, rate coverage as Full, Partial or Missing in a
+      claim chart, and give an overall risk summary.
+    answer_check:
+      description: claim chart with element-level Full/Partial/Missing coverage and a risk summary
+      require: ['claim', '\b(full|partial|missing)\b', '(risk|summary)']
+      min_chars: 400
+  bookshelf-researcher:
+    override: true
+    prompt: >-
+      Using my attached knowledge base, summarise what it says about lithium-ion battery degradation, with
+      citations to the documents.
+    answer_check:
+      description: honest answer when no knowledge base is attached (no invented citations)
+      require: ['(no (knowledge base|bookshelf|attached|document)|not (attached|available|find|found)|cannot|can.t|unable)']
+      forbid: ['doi:\s*10\.\d{4,}/']
+      min_chars: 60
+  hardware-spec-dev:
+    prompt: >-
+      Write a short IP functional specification outline for a 16-bit UART transmitter core. No vendor handbook
+      is attached; say which statements need an official source and mark them as requirements to verify.
+    answer_check:
+      description: specification outline that separates sourced facts from requirements to verify
+      require: ['(uart|transmit)', '(requirement|acceptance|verify|source)']
+      min_chars: 300
+  flow-cytometry-referee:
+    prompt: >-
+      Review the attached FCS file synthetic-sample-01.fcs for technical quality: report the event count,
+      channels, time-channel behaviour and whether a spillover (compensation) matrix is stored.
+    expected_output: 2000 events across 5 channels (FSC-A, SSC-A, FITC-A, PE-A, Time) with a stored spillover matrix.

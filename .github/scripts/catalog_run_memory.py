@@ -104,7 +104,7 @@ def write_run_memory(out, ledger, card):
              "## Unresolved actions", "", "| Agent | Status/category | Owner | Proposed action | Evidence |",
              "|---|---|---|---|---|"]
     for a in actions:
-        if a["grade"] in {"A", "B"}:
+        if a["grade"] in {"A", "B", "C"}:
             continue
         cells = [a["agent"], f"{a['status']}/{a['category']}", a["owner"], a["proposed_action"], a["summary_path"] or "No response submitted; inspect case checkpoint"]
         lines.append("| " + " | ".join(str(c or "Unknown").replace("|", "/").replace("\n", " ") for c in cells) + " |")
