@@ -153,6 +153,13 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r .github/requirements-ci.txt
+      # Test exactly the catalog users get: the latest microsoft/discovery agents, so new
+      # agents are included automatically. The source gate below re-verifies these bytes.
+      - name: Use the latest upstream catalog agents
+        run: |
+          git fetch --no-tags --depth=1 https://github.com/microsoft/discovery.git main
+          rm -rf agents && git checkout FETCH_HEAD -- agents
+          echo "Catalog: microsoft/discovery@$(git rev-parse --short FETCH_HEAD), $(ls -d agents/*/ | wc -l) agents"
       - name: Record unique run label and private input map
         id: identity
         env:
