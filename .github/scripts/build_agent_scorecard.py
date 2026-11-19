@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import re
 import subprocess
 import sys
@@ -225,6 +226,7 @@ def token_summary(card: dict) -> str:
 
 def build(ledger: dict, repo: Path, history: list[dict], evict_after: int, run_label: str,
           evidence_root: Path | None = None) -> dict:
+    from catalog_cost import agent_cost, cost_totals
     from catalog_resource_labels import resource_fields
     rows = ledger.get("results")
     if not isinstance(rows, list) or not rows:
@@ -251,7 +253,8 @@ def build(ledger: dict, repo: Path, history: list[dict], evict_after: int, run_l
             "original_reason": row.get("original_reason"),
             "evidence_path": row.get("evidence_path"),
             "session": row.get("investigation"),
-            "tokens": (row.get("usage") or {}).get("total_tokens"),
+            "tokens": (row.get("usage") or {}).get("total_tokens") if isinstance(row.get("usage"), dict) else None,
+            "cost": agent_cost(row, evidence_root),
             "elapsed_seconds": row.get("elapsed_seconds"),
             "failing_streak": streak,
             "lifecycle": lifecycle(streak, evict_after),
@@ -271,6 +274,7 @@ def build(ledger: dict, repo: Path, history: list[dict], evict_after: int, run_l
             "categories": dict(sorted(Counter(a["category"] for a in agents).items())),
             "pass_rate_of_judged": round((grades["A"] + grades["B"]) / judged, 3) if judged else None,
             **token_totals(agents),
+            "cost": cost_totals([a["cost"] for a in agents]),
         },
         "agents": agents,
     }
@@ -280,18 +284,26 @@ GRADE_TEXT = {"A": "Roundtrip passed", "B": "Passed after agent retries", "F": "
 
 
 def render_markdown(card: dict) -> str:
+    from catalog_cost import PRICE_NOTE
     from catalog_resource_labels import RESOURCE_NOTE
     t = card["totals"]
+    money = lambda v: "-" if v is None else f"${v:.4f}"
+    cost = t.get("cost") or {}
+    studio = (card.get("studio_url") or "").rstrip("/")
     lines = [f"# Agent report card: {card['run_label']}", "",
              f"Generated {card['generated_at']}. Agents graded: **{t['agents']}**. "
              f"Pass rate of judged agents: **{(t['pass_rate_of_judged'] or 0):.0%}**.", "",
-             token_summary(card), "",
-             "| Grade | Meaning | Agents |", "|---|---|---:|"]
+             token_summary(card), ""]
+    if cost:
+        lines += [f"Estimated cost: **{money(cost.get('total_cost_usd'))}** (model {money(cost.get('model_cost_usd'))}, "
+                  f"compute {money(cost.get('compute_cost_usd'))}); tool time {cost.get('tool_seconds', 0):.0f} s; "
+                  f"cost known for {cost.get('cost_known_agents', 0)}/{t['agents']} agents.", ""]
+    lines += ["| Grade | Meaning | Agents |", "|---|---|---:|"]
     for grade in ("A", "B", "F", "I"):
         lines.append(f"| {grade} | {GRADE_TEXT[grade]} | {t['grades'].get(grade, 0)} |")
     lines += ["", "| Failure category | Agents |", "|---|---:|"]
     lines += [f"| {k} | {v} |" for k, v in t["categories"].items() if not k.startswith("passed")]
-    lines += ["", RESOURCE_NOTE, "",
+    lines += ["", RESOURCE_NOTE, "", PRICE_NOTE, "",
               "Failure is not proof of author fault; pass is not proof of scientific correctness. Owner/lifecycle suggestions require review.", "",
               "| Agent | Grade | Declared resources | Category | Fix owner | Lifecycle | Contact | Reason | Tokens |",
               "|---|---|---|---|---|---|---|---|---:|"]
@@ -302,6 +314,29 @@ def render_markdown(card: dict) -> str:
         tokens = "Unknown" if a.get("tokens") is None else a["tokens"]
         lines.append(f"| {a['agent']} | {a['grade']} | {a.get('resource_label', 'Needs resource review')} | {a['category']} | {a['fix_owner'] or ''} | "
                  f"{a['lifecycle']} | {contact} | {reason} | {tokens} |")
+    return "\n".join(lines) + "\n"
+
+
+def render_cost_markdown(card: dict) -> str:
+    """Per-agent cost table, kept in its own file so the graded table keeps one row per agent."""
+    money = lambda v: "-" if v is None else f"${v:.4f}"
+    clean = lambda v: str(v or "").replace("|", " ").replace("\n", " ").replace("@", "")[:80]
+    cost = card["totals"].get("cost") or {}
+    # Studio sessions are internal: listed only when an internal Studio URL is configured.
+    studio = (card.get("studio_url") or "").rstrip("/")
+    lines = [f"# Agent cost: {clean(card['run_label'])}", "",
+             f"Estimated total {money(cost.get('total_cost_usd'))} (model {money(cost.get('model_cost_usd'))}, "
+             f"compute {money(cost.get('compute_cost_usd'))}).", "",
+             "| Agent | Tool time (s) | Node pool | Model $ | Compute $ | Total $ |" + (" Studio session |" if studio else ""),
+             "|---|---:|---|---:|---:|---:|" + ("---|" if studio else "")]
+    for a in card["agents"]:
+        c = a.get("cost") or {}
+        row = (f"| {clean(a['agent'])} | {c.get('tool_seconds', 0)} | {clean(', '.join(c.get('node_pools') or [])) or '-'} | "
+               f"{money(c.get('model_cost_usd'))} | {money(c.get('compute_cost_usd'))} | {money(c.get('total_cost_usd'))} |")
+        if studio:
+            session = clean(a.get("session"))
+            row += f" [{session}]({studio}) |" if session else " |"
+        lines.append(row)
     return "\n".join(lines) + "\n"
 
 
@@ -429,11 +464,13 @@ def main() -> int:
     ledger = json.loads(args.ledger.read_text(encoding="utf-8"))
     history = load_history(args.history, args.run_label)
     card = build(ledger, args.repo_root.resolve(), history, args.evict_after, args.run_label, args.evidence_root)
-    card.update(notify_to=args.notify_to, relayed_to_authors=args.relay_to_authors)
+    card.update(notify_to=args.notify_to, relayed_to_authors=args.relay_to_authors,
+                studio_url=os.getenv("STUDIO_URL", ""))
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "agent-scorecard.json").write_text(json.dumps(card, indent=2), encoding="utf-8")
     (args.output_dir / "agent-scorecard.md").write_text(render_markdown(card), encoding="utf-8")
     (args.output_dir / "agent-scorecard.html").write_text(render_html(card), encoding="utf-8")
+    (args.output_dir / "agent-cost.md").write_text(render_cost_markdown(card), encoding="utf-8")
     write_digest(card, args.output_dir, args.notify_to, args.relay_to_authors)
     drafts = write_notices(card, args.output_dir / "author-notices")
     print(json.dumps({**card["totals"], "author_notice_drafts": drafts, "notify_to": args.notify_to,
