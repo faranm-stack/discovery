@@ -16,9 +16,9 @@ on:
         options: [plan, live]
         default: plan
       max_invocations:
-        description: Most agents to run (0 = every agent in the latest catalog)
-        type: number
-        default: 0
+        description: How many agents to run ("all" = every agent in the latest catalog)
+        type: string
+        default: all
       concurrency:
         description: Agents at once, 1..4 (per-lane limits still apply; GPU runs one at a time)
         type: number
@@ -139,7 +139,9 @@ jobs:
       CATALOG_SMOKE_INPUTS_APPROVED: ${{ vars.CATALOG_SMOKE_INPUTS_APPROVED }}
       CATALOG_SMOKE_SCHEDULE_LIVE_ENABLED: ${{ vars.CATALOG_SMOKE_SCHEDULE_LIVE_ENABLED }}
       EXPECTED_AGENT_COUNT: ${{ vars.CATALOG_SMOKE_EXPECTED_AGENT_COUNT }}
-      MAX_INVOCATIONS: ${{ github.event_name == 'schedule' && vars.CATALOG_SMOKE_SCHEDULE_MAX_INVOCATIONS || inputs.max_invocations }}
+      RUN_SIZE: ${{ github.event_name == 'schedule' && vars.CATALOG_SMOKE_SCHEDULE_MAX_INVOCATIONS || inputs.max_invocations }}
+      STUDIO_URL: ${{ vars.STUDIO_URL }}
+      CATALOG_LIVE_PRICES: '1'
       WORKERS: ${{ github.event_name == 'schedule' && vars.CATALOG_SMOKE_SCHEDULE_CONCURRENCY || inputs.concurrency }}
       ALLOW_LANES: ${{ github.event_name == 'schedule' && vars.CATALOG_SMOKE_SCHEDULE_ALLOW_LANES || inputs.allow_lanes }}
       CLIENT_TIMEOUT: '1800'
@@ -167,11 +169,12 @@ jobs:
         run: python .github/scripts/catalog_workflow_preflight.py prepare --output-dir "$RUNNER_TEMP/catalog-sweep"
       - name: Freeze offline plan before any credential use
         run: python .github/scripts/catalog_sweep.py --mode plan --output-dir "$RUNNER_TEMP/catalog-sweep"
-      - name: Size the run to the catalog (0 = every planned agent)
+      - name: Size the run to the catalog ("all" = every planned agent)
         run: |
           n=$(python -c "import json,sys;print(len(json.load(open(sys.argv[1]))['cases']))" "$RUNNER_TEMP/catalog-sweep/catalog-plan.json")
-          want="${MAX_INVOCATIONS:-0}"
-          if [ "$want" -le 0 ] || [ "$want" -gt "$n" ]; then want=$n; fi
+          want="${RUN_SIZE:-all}"
+          case "$want" in ''|all|ALL|All) want=$n ;; *[!0-9]*) echo "max_invocations must be a number or all"; exit 1 ;; esac
+          if [ "$want" -gt "$n" ]; then want=$n; fi
           echo "MAX_INVOCATIONS=$want" >> "$GITHUB_ENV"
           echo "Running $want of $n catalog agents"
       - name: Require exact latest pinned inventory, source bytes, inputs and bounded approval

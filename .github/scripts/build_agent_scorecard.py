@@ -226,7 +226,9 @@ def token_summary(card: dict) -> str:
 
 def build(ledger: dict, repo: Path, history: list[dict], evict_after: int, run_label: str,
           evidence_root: Path | None = None) -> dict:
-    from catalog_cost import agent_cost, cost_totals
+    from catalog_cost import agent_cost, cost_totals, refresh_prices, PRICE_SOURCES
+    if os.getenv("CATALOG_LIVE_PRICES") == "1" and not PRICE_SOURCES:
+        refresh_prices()
     from catalog_resource_labels import resource_fields
     rows = ledger.get("results")
     if not isinstance(rows, list) or not rows:
@@ -274,7 +276,7 @@ def build(ledger: dict, repo: Path, history: list[dict], evict_after: int, run_l
             "categories": dict(sorted(Counter(a["category"] for a in agents).items())),
             "pass_rate_of_judged": round((grades["A"] + grades["B"]) / judged, 3) if judged else None,
             **token_totals(agents),
-            "cost": cost_totals([a["cost"] for a in agents]),
+            "cost": {**cost_totals([a["cost"] for a in agents]), "price_sources": dict(PRICE_SOURCES)},
         },
         "agents": agents,
     }
@@ -284,7 +286,8 @@ GRADE_TEXT = {"A": "Roundtrip passed", "B": "Passed after agent retries", "F": "
 
 
 def render_markdown(card: dict) -> str:
-    from catalog_cost import PRICE_NOTE
+    from catalog_cost import price_note
+    PRICE_NOTE = price_note()
     from catalog_resource_labels import RESOURCE_NOTE
     t = card["totals"]
     money = lambda v: "-" if v is None else f"${v:.4f}"

@@ -21,6 +21,61 @@ MODEL_PRICES = {
 NODE_POOL_RATES = {"nodepool1": 0.222, "d4sv6": 0.233, "h100": 8.725}
 DEFAULT_NODE_RATE = 0.233
 
+# Azure Retail Prices API meters (UK South, Global Standard) used to refresh the defaults above.
+RETAIL_API = "https://prices.azure.com/api/retail/prices"
+REGION = "uksouth"
+MODEL_METERS = {
+    "gpt-5.4": ("5.4 inp Gl 1M Tokens", "5.4 cd inp Gl 1M Tokens", "5.4 opt Gl 1M Tokens"),
+    "gpt-5-mini": ("5 mini Inp Gl 1M Tokens", "5 mini cd Inp Gl 1M Tokens", "5 mini Opt Gl 1M Tokens"),
+}
+NODE_POOL_SKUS = {"nodepool1": "Standard_D4s_v4", "d4sv6": "Standard_D4s_v6", "h100": "Standard_NC40ads_H100_v5"}
+PRICE_SOURCES: dict[str, str] = {}
+
+
+def _retail(filter_text: str) -> list[dict]:
+    import urllib.parse
+    import urllib.request
+    url = f"{RETAIL_API}?$filter={urllib.parse.quote(filter_text)}"
+    items: list[dict] = []
+    while url and len(items) < 500:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "catalog-cost"}), timeout=30) as r:
+            page = json.load(r)
+        items += page.get("Items") or []
+        url = page.get("NextPageLink")
+    return items
+
+
+def refresh_prices(retail=_retail) -> dict[str, str]:
+    """Replace built-in prices with current Azure list prices where a meter exists.
+
+    Any price the API does not return keeps its built-in default, and the source of
+    every price is recorded so the report never presents a guess as a list price.
+    """
+    for model, meters in MODEL_METERS.items():
+        PRICE_SOURCES[f"model:{model}"] = "built-in default"
+        try:
+            rows = {}
+            for meter in meters:
+                for i in retail(f"armRegionName eq '{REGION}' and meterName eq '{meter}' and priceType eq 'Consumption'"):
+                    rows[i["meterName"]] = i["unitPrice"]
+        except Exception:  # Network or API failure: keep defaults.
+            continue
+        if all(m in rows for m in meters):
+            MODEL_PRICES[model] = tuple(float(rows[m]) for m in meters)  # type: ignore[assignment]
+            PRICE_SOURCES[f"model:{model}"] = "Azure Retail Prices API"
+    for pool, sku in NODE_POOL_SKUS.items():
+        PRICE_SOURCES[f"node:{pool}"] = "built-in default"
+        try:
+            rows = [i for i in retail(f"armRegionName eq '{REGION}' and armSkuName eq '{sku}' and priceType eq 'Consumption'")
+                    if i.get("serviceName") == "Virtual Machines" and "Windows" not in i.get("productName", "")
+                    and not re.search(r"Spot|Low Priority", i.get("meterName", ""))]
+        except Exception:
+            continue
+        if rows:
+            NODE_POOL_RATES[pool] = float(rows[0]["unitPrice"])
+            PRICE_SOURCES[f"node:{pool}"] = "Azure Retail Prices API"
+    return dict(PRICE_SOURCES)
+
 
 def _model_key(model: str | None) -> str | None:
     text = (model or "").lower().replace("_", "-")
@@ -122,7 +177,10 @@ def cost_totals(agents: list[dict]) -> dict:
             "cost_known_agents": len(known)}
 
 
-PRICE_NOTE = ("Cost is an estimate from measured usage at Azure list prices (USD, UK South): "
-              + "; ".join(f"{m} ${p[0]}/${p[1]}/${p[2]} per 1M input/cached/output tokens" for m, p in MODEL_PRICES.items())
-              + "; node pools " + ", ".join(f"{k} ${v}/h" for k, v in NODE_POOL_RATES.items())
-              + ". Tool time is operation start to finish (includes queueing); idle nodes are not counted. Not an Azure bill.")
+def price_note() -> str:
+    sources = sorted(set(PRICE_SOURCES.values())) or ["built-in default"]
+    return ("Cost is an estimate from measured usage at Azure list prices (USD, UK South; source: "
+            + ", ".join(sources) + "): "
+            + "; ".join(f"{m} ${p[0]}/${p[1]}/${p[2]} per 1M input/cached/output tokens" for m, p in MODEL_PRICES.items())
+            + "; node pools " + ", ".join(f"{k} ${v}/h" for k, v in NODE_POOL_RATES.items())
+            + ". Tool time is operation start to finish (includes queueing); idle nodes are not counted. Not an Azure bill.")
