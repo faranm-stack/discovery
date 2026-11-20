@@ -387,7 +387,28 @@ button{{margin-right:6px;padding:4px 10px}}</style></head><body>
 <table><thead><tr><th>Agent</th><th>Grade</th><th>Category</th><th>Suggested fix owner</th><th>Provisional lifecycle</th><th>Declared resources</th>
 <th>Contact</th><th>Suggested fix</th><th>Reason</th><th>Tokens</th></tr></thead><tbody>{''.join(rows)}</tbody></table>
 <script>function f(g){{document.querySelectorAll('tbody tr').forEach(r=>r.style.display=(!g||r.dataset.grade===g)?'':'none')}}</script>
-</body></html>"""
+{render_cost_html(card)}</body></html>"""
+
+
+def render_cost_html(card: dict) -> str:
+    """Private cost section of the internal card. The public report never includes it."""
+    cost = card["totals"].get("cost") or {}
+    if not cost:
+        return ""
+    from catalog_cost import price_note
+    e = lambda v: html.escape(str(v if v is not None else ""))
+    money = lambda v: "-" if v is None else f"${v:.4f}"
+    rows = "".join(
+        f"<tr><td>{e(a['agent'])}</td><td>{e((a.get('cost') or {}).get('tool_seconds', 0))}</td>"
+        f"<td>{e(', '.join((a.get('cost') or {}).get('node_pools') or []) or '-')}</td>"
+        f"<td>{e(money((a.get('cost') or {}).get('model_cost_usd')))}</td>"
+        f"<td>{e(money((a.get('cost') or {}).get('compute_cost_usd')))}</td>"
+        f"<td>{e(money((a.get('cost') or {}).get('total_cost_usd')))}</td></tr>" for a in card["agents"])
+    return (f"<h2>Cost (private)</h2><p>Estimated total <b>{e(money(cost.get('total_cost_usd')))}</b> "
+            f"(model {e(money(cost.get('model_cost_usd')))}, compute {e(money(cost.get('compute_cost_usd')))}); "
+            f"cost known for {e(cost.get('cost_known_agents', 0))}/{e(card['totals']['agents'])} agents.</p>"
+            f"<p>{e(price_note())}</p><table><thead><tr><th>Agent</th><th>Tool time (s)</th><th>Node pool</th>"
+            f"<th>Model $</th><th>Compute $</th><th>Total $</th></tr></thead><tbody>{rows}</tbody></table>")
 
 
 def _author_key(owner: dict) -> str:

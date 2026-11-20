@@ -93,21 +93,19 @@ jobs:
             --ledger "$RUNNER_TEMP/catalog-plan/catalog-results.json" \
             --inventory-json .github/smoke/catalog-inventory-baseline.json \
             --source-revision "$GITHUB_SHA" --output-dir "$RUNNER_TEMP/catalog-public-report"
-      - name: Upload public HTML and CSV only
-        if: always()
+      - name: Upload the offline public report (not on live runs)
+        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.mode == 'live') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: catalog-public-plan-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/catalog-public-report/catalog-public-report.html
-            ${{ runner.temp }}/catalog-public-report/catalog-public-report.csv
+          path: ${{ runner.temp }}/catalog-public-report/catalog-public-report.html
           if-no-files-found: error
           retention-days: 7
       - name: Publish status only
         if: always()
         run: echo 'Offline plan only. No live execution or scientific pass is established.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: ${{ always() && github.event.repository.private && vars.CATALOG_SMOKE_ARTIFACTS_APPROVED == 'true' }}
+        if: ${{ always() && github.event.repository.private && vars.CATALOG_SMOKE_ARTIFACTS_APPROVED == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.mode == 'live') }}
         with:
           name: catalog-offline-plan-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/catalog-plan/
@@ -222,14 +220,12 @@ jobs:
             --ledger "$RUNNER_TEMP/catalog-sweep/catalog-results.json" \
             --inventory-json .github/smoke/catalog-inventory-baseline.json \
             --source-revision "$GITHUB_SHA" --output-dir "$RUNNER_TEMP/catalog-public-report"
-      - name: Upload public HTML and CSV only
+      - name: Upload the public report card (HTML only)
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: catalog-public-sweep-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/catalog-public-report/catalog-public-report.html
-            ${{ runner.temp }}/catalog-public-report/catalog-public-report.csv
+          name: catalog-report-card-public-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/catalog-public-report/catalog-public-report.html
           if-no-files-found: error
           retention-days: 7
       - name: Publish status only (no private evidence in summaries)
@@ -240,11 +236,11 @@ jobs:
         run: |
           card="$RUNNER_TEMP/catalog-sweep/report-card/agent-scorecard.md"
           if [ -f "$card" ]; then grep -v -E '^(Estimated cost|Cost is an estimate)' "$card" >> "$GITHUB_STEP_SUMMARY"; else echo 'Report card was not produced; see the sweep log.' >> "$GITHUB_STEP_SUMMARY"; fi
-      - name: Preserve private execution ledger, scorecard and handoff
+      - name: Upload the private report card (HTML, includes cost)
         if: ${{ always() && github.event.repository.private && vars.CATALOG_SMOKE_ARTIFACTS_APPROVED == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: catalog-sweep-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/catalog-sweep/
+          name: catalog-report-card-private-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/catalog-sweep/report-card/agent-scorecard.html
           retention-days: 7
           if-no-files-found: warn

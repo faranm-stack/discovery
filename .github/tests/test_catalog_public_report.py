@@ -503,8 +503,12 @@ def test_workflow_public_uploads_exact_files_after_always_export_and_private_raw
                 paths = step["with"]["path"].splitlines()
                 if "catalog-public-report" in step["with"]["path"]:
                     public_count += 1
-                    assert step["if"] == "always()" and i > export_index
-                    assert paths == ["${{ runner.temp }}/catalog-public-report/" + name for name in subject.FILES]
+                    # Live dispatches upload only the sweep's report; the plan job's
+                    # offline copy is skipped so a live run produces exactly two files.
+                    assert step["if"] in ("always()", "${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.mode == 'live') }}")
+                    assert i > export_index
+                    assert paths in (["${{ runner.temp }}/catalog-public-report/catalog-public-report.html"],
+                                     ["${{ runner.temp }}/catalog-public-report/" + name for name in subject.FILES])
                     assert step["with"]["if-no-files-found"] == "error"
                 else:
                     assert "always()" in step["if"] and "github.event.repository.private" in step["if"]

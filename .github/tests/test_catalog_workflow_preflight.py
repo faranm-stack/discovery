@@ -649,9 +649,9 @@ def test_workflow_structure_and_privacy():
             for step in job["steps"]:
                 if "upload-artifact@" in step.get("uses", ""):
                     if "catalog-public-report" in step.get("with", {}).get("path", ""):
-                        assert step["if"] == "always()"
+                        assert step["if"].startswith(("always()", "${{ always()"))
                         paths = step["with"]["path"].splitlines()
-                        assert len(paths) == 2
+                        assert 1 <= len(paths) <= 2
                         assert all(p.endswith(("/catalog-public-report.html", "/catalog-public-report.csv")) for p in paths)
                         assert not any("*" in p for p in paths)
                         continue
