@@ -152,7 +152,7 @@ RUN cd /tmp && \
     curl -L -o sky130_models.tar.gz \
     "https://api.github.com/repos/mkghub/skywater130_fd_pr_models/tarball/master" && \
     mkdir -p /app/pdk/sky130/sky130_fd_pr_models && \
-    tar xzf sky130_models.tar.gz -C /app/pdk/sky130/sky130_fd_pr_models --strip-components=1 && \
+    python3 -c "import tarfile; t = tarfile.open('sky130_models.tar.gz'); ms = [m for m in t.getmembers() if '/' in m.name]; [setattr(m, 'name', m.name.split('/', 1)[1]) for m in ms]; t.extractall('/app/pdk/sky130/sky130_fd_pr_models', members=ms, filter='data')" && \
     rm -f /tmp/sky130_models.tar.gz && \
     echo "Rewriting relative .include paths to absolute..." && \
     find /app/pdk/sky130/sky130_fd_pr_models -type f \( -name "*.spice" -o -name "*.lib" \) \
