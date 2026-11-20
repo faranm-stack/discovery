@@ -432,9 +432,11 @@ async def _run_live_session(args, report, output, credential, token, aiohttp, Di
             report.update(verdict="ready", reason="Agent read succeeded; no investigation or invocation attempted.", phase="preflight_complete")
             return
         report["phase"] = "create_investigation"
-        await client.create_investigation(args.project, report["investigation"], description="One manual catalog smoke test; no deployments or registry changes.")
+        display = report.get("display_name") or None
+        await client.create_investigation(args.project, report["investigation"], display_name=display,
+                                          description="One manual catalog smoke test; no deployments or registry changes.")
         report["phase"] = "create_conversation"
-        report["conversation_id"] = await client.create_conversation(args.project, report["investigation"])
+        report["conversation_id"] = await client.create_conversation(args.project, report["investigation"], display_name=display)
         # Persist identifiers before the potentially billable POST. No retries.
         report["phase"] = "submit_response"
         report["submission_attempted"] = True

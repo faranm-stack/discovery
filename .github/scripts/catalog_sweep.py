@@ -840,7 +840,11 @@ async def execute_sweep(args, plan, store):
                           "mode": "live", "phase": "agent_preflight", "verdict": "not_run", "agent": agent_name,
                           "project": args.project, "workspace_api_url": args.workspace_api_url,
                           "contract": CONTRACT_ID, "catalog_revision": revision(), "source_fingerprints": case["source_fingerprints"],
-                          "expected_tools": expected_tools, "investigation": investigation_name(agent_name, run_id=getattr(args, "run_label", None)),
+                          "expected_tools": expected_tools,
+                          # Name the Studio session after the catalog agent, not the long prefixed
+                          # deployment name, which truncated every session to "catalog".
+                          "investigation": investigation_name(name, run_id=getattr(args, "run_label", None)),
+                          "display_name": f"{name} | catalog run {getattr(args, 'run_label', None) or 'manual'}",
                           "run_label": getattr(args, "run_label", None),
                           "prompt": (case["candidate_prompt"] if answer_only else
                                      tool_anchored_prompt(case["candidate_prompt"], expected_tools, case["lane"],

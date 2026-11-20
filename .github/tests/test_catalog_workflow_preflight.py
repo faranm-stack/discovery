@@ -640,7 +640,10 @@ def test_workflow_structure_and_privacy():
     assert commands.index("preflight.py gate") < commands.index("preflight.py auth") < commands.index("--mode live")
     for flag in ("--run-label", "--input-assets", "--max-invocations", "--allow-lanes", "--timeout"):
         assert flag in commands
-    assert "--replace" not in commands and "--continue-independent" not in commands
+    assert "--replace" not in commands
+    # One overrunning agent must not stop the catalog: it keeps its concurrency slot and is
+    # observed read-only (never resubmitted or cancelled) while independent agents continue.
+    assert "--continue-independent --reconcile-checks 10 --reconcile-interval 300" in commands
     for workflow in (sweep, report):
         for job in workflow["jobs"].values():
             for step in job["steps"]:

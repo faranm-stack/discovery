@@ -415,7 +415,7 @@ async def run_fake_live_session(tmp_path, response):
             return self.base + "/" + "/".join(parts)
         async def create_investigation(self, project, name, **kwargs):
             assert name == "example"
-        async def create_conversation(self, project, investigation):
+        async def create_conversation(self, project, investigation, **kwargs):
             return "conversation-test"
     args = SimpleNamespace(workspace_api_url=ENDPOINT, project="weekly-agent-svc-test",
                            agent="example", preflight_only=False, contract="roundtrip")
