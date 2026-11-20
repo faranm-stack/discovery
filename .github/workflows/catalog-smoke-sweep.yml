@@ -158,6 +158,10 @@ jobs:
       # Test exactly the catalog users get: the latest microsoft/discovery agents, so new
       # agents are included automatically. The source gate below re-verifies these bytes.
       - name: Use the latest upstream catalog agents
+        env:
+          # Keep Git LFS model files as pointers, matching actions/checkout (lfs: false).
+          # Downloading them needs upstream LFS access and is not needed to run agents.
+          GIT_LFS_SKIP_SMUDGE: '1'
         run: |
           git fetch --no-tags --depth=1 https://github.com/microsoft/discovery.git main
           rm -rf agents && git checkout FETCH_HEAD -- agents
