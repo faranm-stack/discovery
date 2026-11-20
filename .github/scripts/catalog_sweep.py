@@ -848,7 +848,7 @@ async def execute_sweep(args, plan, store):
                           # Name the Studio session after the catalog agent, not the long prefixed
                           # deployment name, which truncated every session to "catalog".
                           "investigation": investigation_name(name, run_id=getattr(args, "run_label", None)),
-                          "display_name": (f"{name} | catalog run "
+                          "display_name": (f"{name} | Catalog Run "
                                            f"{datetime.now(timezone.utc):%B} {datetime.now(timezone.utc).day}, "
                                            f"{datetime.now(timezone.utc).year}"),
                           "run_label": getattr(args, "run_label", None),
