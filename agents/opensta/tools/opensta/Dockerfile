@@ -45,9 +45,11 @@ RUN cd /tmp && \
 
 # Build CUDD (BDD library required by OpenSTA)
 RUN cd /tmp && \
-    curl -L -o cudd-3.0.0.tar.gz \
-    "https://raw.githubusercontent.com/davidkebo/cudd/main/cudd_versions/cudd-3.0.0.tar.gz" && \
-    tar xzf cudd-3.0.0.tar.gz && \
+    curl -fL -o cudd-3.0.0.tar.gz \
+    "https://github.com/ivmai/cudd/archive/refs/tags/cudd-3.0.0.tar.gz" && \
+    echo "5fe145041c594689e6e7cf4cd623d5f2b7c36261708be8c9a72aed72cf67acce  cudd-3.0.0.tar.gz" | sha256sum -c - && \
+    mkdir cudd-3.0.0 && \
+    tar xzf cudd-3.0.0.tar.gz -C cudd-3.0.0 --strip-components=1 && \
     cd cudd-3.0.0 && \
     ./configure --prefix=/usr/local CFLAGS="-fPIC" CXXFLAGS="-fPIC" && \
     make -j$(nproc) && \

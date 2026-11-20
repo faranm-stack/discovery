@@ -235,6 +235,11 @@ jobs:
       - name: Publish status only (no private evidence in summaries)
         if: always()
         run: echo 'Inspect protected artifacts and unresolved remote work before another run. No automatic retry or Proceed.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Show the report card (private repo only; cost stays in the private artifact)
+        if: ${{ always() && github.event.repository.private }}
+        run: |
+          card="$RUNNER_TEMP/catalog-sweep/report-card/agent-scorecard.md"
+          if [ -f "$card" ]; then cat "$card" >> "$GITHUB_STEP_SUMMARY"; else echo 'Report card was not produced; see the sweep log.' >> "$GITHUB_STEP_SUMMARY"; fi
       - name: Preserve private execution ledger, scorecard and handoff
         if: ${{ always() && github.event.repository.private && vars.CATALOG_SMOKE_ARTIFACTS_APPROVED == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

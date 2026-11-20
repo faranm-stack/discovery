@@ -149,6 +149,10 @@ async def run_queue(cases, worker, *, concurrency=2, continue_independent=False,
             if access_denied(result):
                 results[case["catalog_agent"]]["stop_new_work"] = True
                 stopped = True
+            if result.get("human_approval_pending") is True and not access_denied(result):
+                # Paused on a Studio confirmation: nothing runs until a human
+                # acts, so it is recorded for review without holding capacity.
+                continue
             if result.get("status") == "uncertain" or result.get("remote_may_be_running") is True:
                 held.append(case)
                 if not continue_independent:

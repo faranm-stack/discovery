@@ -575,3 +575,18 @@ def test_execute_sweep_persists_supervisor_failure_even_before_callback_checkpoi
     before = len(requests)
     asyncio.run(sweep.execute_sweep(args, plan, store))
     assert len(requests) == before and len(checks) == 1 and invocations == []
+
+def test_approval_pending_case_is_recorded_without_holding_capacity():
+    async def scenario():
+        seen = []
+        async def worker(item):
+            seen.append(item["catalog_agent"])
+            if item["catalog_agent"] in {"a1", "a2"}:
+                return {"status": "uncertain", "remote_may_be_running": True, "human_approval_pending": True}
+            return terminal(item["catalog_agent"])
+        rows = await sweep.run_queue([case("a1"), case("a2"), case("b"), case("c")], worker,
+                                     concurrency=2, continue_independent=True)
+        return seen, {row["catalog_agent"]: row["status"] for row in rows}
+    seen, statuses = asyncio.run(scenario())
+    assert sorted(seen) == ["a1", "a2", "b", "c"]
+    assert statuses == {"a1": "uncertain", "a2": "uncertain", "b": "passed", "c": "passed"}
