@@ -1041,7 +1041,10 @@ def main():
         results = asyncio.run(execute_sweep(args, plan, store))
     report = write_report(args.output_dir, plan, results, args.mode)
     if args.mode == "live":
-        return 0 if report["counts"].get("passed", 0) == report["total"] else 1
+        # The job reports whether the sweep finished, not whether every agent
+        # passed: agent results are graded on the report card. Work that was
+        # never attempted (the queue stopped) still fails the job.
+        return 1 if report["counts"].get("not_run", 0) else 0
     if args.mode == "reconcile":
         return 1 if report["counts"].get("uncertain", 0) else 0
     return 0 if plan["summary"]["static_passed"] == report["total"] else 1

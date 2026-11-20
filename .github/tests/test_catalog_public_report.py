@@ -510,8 +510,17 @@ def test_workflow_public_uploads_exact_files_after_always_export_and_private_raw
                     assert "always()" in step["if"] and "github.event.repository.private" in step["if"]
                     assert "CATALOG_SMOKE_ARTIFACTS_APPROVED == 'true'" in step["if"]
             assert public_count == 1
-            summaries = [s["run"] for s in steps if "GITHUB_STEP_SUMMARY" in s.get("run", "")]
-            assert all(s.startswith("echo '") and "cat " not in s for s in summaries)
+            summary_steps = [s for s in steps if "GITHUB_STEP_SUMMARY" in s.get("run", "")]
+            for step in summary_steps:
+                if step["run"].startswith("echo '"):
+                    assert "cat " not in step["run"]
+                    continue
+                # Only the report card, with its cost lines removed, and only on
+                # a private repository. Cost stays in the private artifact.
+                assert "github.event.repository.private" in step["if"]
+                assert "cat " not in step["run"]
+                assert "grep -v -E '^(Estimated cost|Cost is an estimate)' \"$card\"" in step["run"]
+                assert 'card="$RUNNER_TEMP/catalog-sweep/report-card/agent-scorecard.md"' in step["run"]
 
 
 def test_push_is_branch_limited_offline_and_live_gates_unchanged():
