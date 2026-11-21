@@ -109,6 +109,7 @@ class SweepStore:
 
 async def run_queue(cases, worker, *, concurrency=2, continue_independent=False, held_cases=None,
                     reconcile=None, max_reconcile_checks=0, reconcile_interval=30,
+                    release_after_budget=False,
                     reconcile_timeout=60, clock=time.monotonic, sleep=asyncio.sleep):
     """Supervise without resubmitting. Callback receives held cases and returns rows.
 
@@ -204,7 +205,13 @@ async def run_queue(cases, worker, *, concurrency=2, continue_independent=False,
             held = retained
             next_check = clock() + reconcile_interval
             continue
-        occupied = list(active.values()) + held
+        # Once the reconciliation budget is spent, still-unresolved cases stay
+        # "uncertain" on the report but stop reserving capacity, so the rest of
+        # the catalog is still attempted. Nothing is resubmitted or cancelled.
+        budget_spent = (release_after_budget and continue_independent and max_reconcile_checks > 0
+                        and checks >= max_reconcile_checks)
+        reserving = [] if budget_spent else held
+        occupied = list(active.values()) + reserving
         while not stopped and pending and len(occupied) < concurrency:
             counts = Counter(case["lane"] for case in occupied)
             ready_index = next((i for i, case in enumerate(pending)
@@ -931,7 +938,8 @@ async def execute_sweep(args, plan, store):
                           continue_independent=args.continue_independent,
                           held_cases=unresolved, reconcile=reconcile_held if args.mode == "live" else None,
                           max_reconcile_checks=getattr(args, "reconcile_checks", 3),
-                          reconcile_interval=getattr(args, "reconcile_interval", 30))
+                          reconcile_interval=getattr(args, "reconcile_interval", 30),
+                         release_after_budget=getattr(args, "release_after_budget", False))
         # Re-read durable checkpoints (including partial reconciliation passes),
         # then overlay queue observations. Exactly one row per planned case.
         indexed = {case["catalog_agent"]: store.read(case["catalog_agent"])
@@ -990,6 +998,9 @@ def main():
     parser.add_argument("--continue-independent", action="store_true", help="With explicit approval, continue independent cases while unresolved jobs retain concurrency slots.")
     parser.add_argument("--reconcile-checks", type=int, choices=range(0, 11), default=3,
                         help="Bounded read-only checks of held cases (0 disables); requires --continue-independent.")
+    parser.add_argument("--release-after-budget", action="store_true",
+                        help="After the reconciliation budget is spent, keep unresolved cases 'uncertain' but stop "
+                             "reserving their slots so remaining agents are still attempted. Never resubmits.")
     parser.add_argument("--reconcile-interval", type=int, choices=range(5, 301), default=30,
                         help="Seconds between held-case checks; no automatic confirmation or resubmission.")
     parser.add_argument("--allow-lanes", default="cpu")

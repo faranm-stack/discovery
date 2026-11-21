@@ -205,7 +205,7 @@ jobs:
             --timeout "$CLIENT_TIMEOUT" --max-invocations "$MAX_INVOCATIONS" \
             --concurrency "$WORKERS" --allow-lanes "$ALLOW_LANES" \
             --run-label "$RUN_LABEL" --input-assets "$RUNNER_TEMP/catalog-input-assets.yaml" \
-            --continue-independent --reconcile-checks 10 --reconcile-interval 300 \
+            --continue-independent --reconcile-checks 10 --reconcile-interval 300 --release-after-budget \
             --output-dir "$RUNNER_TEMP/catalog-sweep" "${extra[@]}"
       - name: Preserve scorecard and next-run memory even on failure
         if: always()

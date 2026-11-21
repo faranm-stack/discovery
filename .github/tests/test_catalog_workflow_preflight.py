@@ -643,7 +643,7 @@ def test_workflow_structure_and_privacy():
     assert "--replace" not in commands
     # One overrunning agent must not stop the catalog: it keeps its concurrency slot and is
     # observed read-only (never resubmitted or cancelled) while independent agents continue.
-    assert "--continue-independent --reconcile-checks 10 --reconcile-interval 300" in commands
+    assert "--continue-independent --reconcile-checks 10 --reconcile-interval 300 --release-after-budget" in commands
     for workflow in (sweep, report):
         for job in workflow["jobs"].values():
             for step in job["steps"]:

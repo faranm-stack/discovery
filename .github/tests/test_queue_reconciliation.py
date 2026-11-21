@@ -590,3 +590,22 @@ def test_approval_pending_case_is_recorded_without_holding_capacity():
     seen, statuses = asyncio.run(scenario())
     assert sorted(seen) == ["a1", "a2", "b", "c"]
     assert statuses == {"a1": "uncertain", "a2": "uncertain", "b": "passed", "c": "passed"}
+
+
+def test_release_after_budget_frees_slots_without_resubmitting():
+    async def scenario():
+        clock = Clock()
+        seen, checks = [], []
+        async def worker(item):
+            seen.append(item["catalog_agent"])
+            return terminal(item["catalog_agent"])
+        async def reconcile(held):
+            checks.append(len(held))
+            return [{"catalog_agent": h["catalog_agent"], "status": "uncertain", "remote_may_be_running": True} for h in held]
+        rows = await sweep.run_queue([case("b"), case("c")], worker, concurrency=1, continue_independent=True,
+                                     held_cases=[case("old")], reconcile=reconcile, max_reconcile_checks=2,
+                                     reconcile_interval=5, release_after_budget=True, clock=clock, sleep=clock.sleep)
+        return seen, checks, {r["catalog_agent"]: r["status"] for r in rows}
+    seen, checks, statuses = asyncio.run(scenario())
+    assert seen == ["b", "c"] and len(checks) == 2
+    assert statuses == {"old": "uncertain", "b": "passed", "c": "passed"}
