@@ -1,0 +1,14 @@
+name: quantum-many-body
+type: agent
+version: 0.1.0
+associated_tools:
+- agents/quantum-many-body/tools/quantum-many-body
+publisher:
+  name: faranm-stack
+  contact: discovery-catalog@microsoft.com
+  support_url: https://techcommunity.microsoft.com/category/azure/discussions/microsoft-discovery-discussions
+description: Compute exact finite-chain references for the open transverse-field Ising model.
+tags:
+- quantum
+- many-body-physics
+- cpu-reference

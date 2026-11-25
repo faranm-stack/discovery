@@ -1,0 +1,4 @@
+# CPython 3.12, Linux amd64/arm64. NumPy is BSD-3-Clause; retain wheel notices.
+numpy==2.3.5 \
+    --hash=sha256:0d8163f43acde9a73c2a33605353a4f1bc4798745a8b1d73183b28e5b435ae28 \
+    --hash=sha256:8b973c57ff8e184109db042c842423ff4f60446239bd585a5131cc47f06f789d

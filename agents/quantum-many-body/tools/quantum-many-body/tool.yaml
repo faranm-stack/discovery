@@ -1,0 +1,45 @@
+name: quantumManyBody
+description: Compute exact finite-chain references for the open transverse-field Ising model.
+version: 0.1.0
+category: Quantum Computing
+license: MIT
+infra:
+- name: worker
+  infra_type: container
+  image:
+    acr: '{name}.azurecr.io/quantum-many-body:0.1.0'
+  compute:
+    min_resources:
+      cpu: 1
+      ram: 2Gi
+      storage: 4Gi
+      gpu: 0
+    max_resources:
+      cpu: 1
+      ram: 2Gi
+      storage: 4Gi
+      gpu: 0
+actions:
+- name: many_body
+  description: Compute exact finite-chain references for the open transverse-field Ising model.
+  infra_node: worker
+  input_schema:
+    type: object
+    properties:
+      request_json:
+        type: string
+        minLength: 2
+        maxLength: 65536
+        description: UTF-8 JSON request for this operation only. n_qubits is 1 to 6; coupling and field
+          are real coefficients in the explicitly supplied energy_unit. There is no wrap-around bond.
+    required:
+    - request_json
+  inline_files:
+  - mount_path: /input/request.json
+    content: '{{request_json}}'
+  command: --request /input/request.json --output /output
+  output_mount_configurations:
+  - mount_path: /output
+    output_name: referenceResult
+    output_description: JSON result with operation, provenance and scientific limits, or structured failure.
+    auto_promote: false

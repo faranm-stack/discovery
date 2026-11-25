@@ -1,0 +1,14 @@
+name: quantum-dynamics
+type: agent
+version: 0.1.0
+associated_tools:
+- agents/quantum-dynamics/tools/quantum-dynamics
+publisher:
+  name: faranm-stack
+  contact: discovery-catalog@microsoft.com
+  support_url: https://techcommunity.microsoft.com/category/azure/discussions/microsoft-discovery-discussions
+description: Evolve a small pure state under a time-independent Hermitian Hamiltonian.
+tags:
+- quantum
+- time-evolution
+- cpu-reference

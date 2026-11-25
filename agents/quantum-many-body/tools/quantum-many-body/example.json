@@ -1,0 +1,7 @@
+{
+  "operation": "many_body",
+  "n_qubits": 2,
+  "coupling": 1.0,
+  "field": 0.0,
+  "energy_unit": "hartree"
+}

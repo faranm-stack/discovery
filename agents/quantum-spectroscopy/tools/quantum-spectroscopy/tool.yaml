@@ -1,0 +1,46 @@
+name: quantumSpectroscopy
+description: Extract the dominant non-DC FFT frequency from uniformly sampled real observations.
+version: 0.1.0
+category: Quantum Computing
+license: MIT
+infra:
+- name: worker
+  infra_type: container
+  image:
+    acr: '{name}.azurecr.io/quantum-spectroscopy:0.1.0'
+  compute:
+    min_resources:
+      cpu: 1
+      ram: 2Gi
+      storage: 4Gi
+      gpu: 0
+    max_resources:
+      cpu: 1
+      ram: 2Gi
+      storage: 4Gi
+      gpu: 0
+actions:
+- name: spectroscopy
+  description: Extract the dominant non-DC FFT frequency from uniformly sampled real observations.
+  infra_node: worker
+  input_schema:
+    type: object
+    properties:
+      request_json:
+        type: string
+        minLength: 2
+        maxLength: 65536
+        description: UTF-8 JSON request for this operation only. samples contains 8 to 4096 finite real
+          samples; sample_interval_s is the positive, uniform spacing in seconds. Nonuniform sampling
+          is unsupported.
+    required:
+    - request_json
+  inline_files:
+  - mount_path: /input/request.json
+    content: '{{request_json}}'
+  command: --request /input/request.json --output /output
+  output_mount_configurations:
+  - mount_path: /output
+    output_name: referenceResult
+    output_description: JSON result with operation, provenance and scientific limits, or structured failure.
+    auto_promote: false

@@ -1,0 +1,27 @@
+{
+  "checks": {
+    "pure_dephasing_rate_per_s": 0.08333333333333333,
+    "excited_population": [
+      1,
+      0.36787944117144233
+    ]
+  },
+  "boundary": {
+    "t1_s": 1,
+    "t2_s": 2,
+    "times_s": [
+      0,
+      2000
+    ]
+  },
+  "boundary_checks": {
+    "pure_dephasing_rate_per_s": 0,
+    "normalized_coherence": [
+      1,
+      0
+    ]
+  },
+  "invalid": {
+    "t2_s": 5
+  }
+}

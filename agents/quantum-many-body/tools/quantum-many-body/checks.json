@@ -1,0 +1,26 @@
+{
+  "checks": {
+    "eigenvalues": [
+      -1,
+      -1,
+      1,
+      1
+    ],
+    "ground_degeneracy": 2,
+    "boundary": "open"
+  },
+  "boundary": {
+    "n_qubits": 1,
+    "field": 1
+  },
+  "boundary_checks": {
+    "eigenvalues": [
+      -1,
+      1
+    ],
+    "ground_degeneracy": 1
+  },
+  "invalid": {
+    "boundary": "periodic"
+  }
+}

@@ -1,0 +1,14 @@
+name: quantum-spectroscopy
+type: agent
+version: 0.1.0
+associated_tools:
+- agents/quantum-spectroscopy/tools/quantum-spectroscopy
+publisher:
+  name: faranm-stack
+  contact: discovery-catalog@microsoft.com
+  support_url: https://techcommunity.microsoft.com/category/azure/discussions/microsoft-discovery-discussions
+description: Extract the dominant non-DC FFT frequency from uniformly sampled real observations.
+tags:
+- quantum
+- signal-analysis
+- cpu-reference

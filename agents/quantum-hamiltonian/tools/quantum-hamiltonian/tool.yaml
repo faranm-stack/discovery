@@ -1,0 +1,48 @@
+name: quantumHamiltonian
+description: Build and inspect small Hermitian Pauli Hamiltonians with explicit conventions.
+version: 0.1.0
+category: Quantum Computing
+license: MIT
+infra:
+- name: worker
+  infra_type: container
+  image:
+    acr: '{name}.azurecr.io/quantum-hamiltonian:0.1.0'
+  compute:
+    min_resources:
+      cpu: 1
+      ram: 2Gi
+      storage: 4Gi
+      gpu: 0
+    max_resources:
+      cpu: 1
+      ram: 2Gi
+      storage: 4Gi
+      gpu: 0
+actions:
+- name: hamiltonian
+  description: Build and inspect small Hermitian Pauli Hamiltonians with explicit conventions.
+  infra_node: worker
+  input_schema:
+    type: object
+    properties:
+      request_json:
+        type: string
+        minLength: 2
+        maxLength: 65536
+        description: UTF-8 JSON request for this operation only. n_qubits is 1 to 6; terms contains 1
+          to 256 objects with a Pauli string and real coefficient; energy_unit is eV, hartree, dimensionless
+          or rad/s. Optional compare requires terms, the same energy_unit, and left_order and right_order
+          naming the same physical wires in string order (or null if unknown). The leftmost factor is
+          most significant.
+    required:
+    - request_json
+  inline_files:
+  - mount_path: /input/request.json
+    content: '{{request_json}}'
+  command: --request /input/request.json --output /output
+  output_mount_configurations:
+  - mount_path: /output
+    output_name: referenceResult
+    output_description: JSON result with operation, provenance and scientific limits, or structured failure.
+    auto_promote: false

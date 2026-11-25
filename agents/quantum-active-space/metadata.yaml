@@ -1,0 +1,14 @@
+name: quantum-active-space
+type: agent
+version: 0.1.0
+associated_tools:
+- agents/quantum-active-space/tools/quantum-active-space
+publisher:
+  name: faranm-stack
+  contact: discovery-catalog@microsoft.com
+  support_url: https://techcommunity.microsoft.com/category/azure/discussions/microsoft-discovery-discussions
+description: Validate an explicitly selected molecular active space before Hamiltonian work.
+tags:
+- quantum
+- electronic-structure
+- cpu-reference

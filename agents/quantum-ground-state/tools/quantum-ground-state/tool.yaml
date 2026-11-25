@@ -1,0 +1,46 @@
+name: quantumGroundState
+description: Diagonalize a bounded Pauli Hamiltonian and return a checked ground-state reference.
+version: 0.1.0
+category: Quantum Computing
+license: MIT
+infra:
+- name: worker
+  infra_type: container
+  image:
+    acr: '{name}.azurecr.io/quantum-ground-state:0.1.0'
+  compute:
+    min_resources:
+      cpu: 1
+      ram: 2Gi
+      storage: 4Gi
+      gpu: 0
+    max_resources:
+      cpu: 1
+      ram: 2Gi
+      storage: 4Gi
+      gpu: 0
+actions:
+- name: ground_state
+  description: Diagonalize a bounded Pauli Hamiltonian and return a checked ground-state reference.
+  infra_node: worker
+  input_schema:
+    type: object
+    properties:
+      request_json:
+        type: string
+        minLength: 2
+        maxLength: 65536
+        description: UTF-8 JSON request for this operation only. n_qubits is 1 to 6. Each real-weighted
+          term has one I, X, Y or Z per qubit; the left factor is most significant. Supply eV, hartree,
+          dimensionless or rad/s explicitly.
+    required:
+    - request_json
+  inline_files:
+  - mount_path: /input/request.json
+    content: '{{request_json}}'
+  command: --request /input/request.json --output /output
+  output_mount_configurations:
+  - mount_path: /output
+    output_name: referenceResult
+    output_description: JSON result with operation, provenance and scientific limits, or structured failure.
+    auto_promote: false

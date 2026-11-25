@@ -1,0 +1,46 @@
+name: quantumEntanglement
+description: Evaluate bipartite entanglement for normalized two-qubit pure states.
+version: 0.1.0
+category: Quantum Computing
+license: MIT
+infra:
+- name: worker
+  infra_type: container
+  image:
+    acr: '{name}.azurecr.io/quantum-entanglement:0.1.0'
+  compute:
+    min_resources:
+      cpu: 1
+      ram: 2Gi
+      storage: 4Gi
+      gpu: 0
+    max_resources:
+      cpu: 1
+      ram: 2Gi
+      storage: 4Gi
+      gpu: 0
+actions:
+- name: entanglement
+  description: Evaluate bipartite entanglement for normalized two-qubit pure states.
+  infra_node: worker
+  input_schema:
+    type: object
+    properties:
+      request_json:
+        type: string
+        minLength: 2
+        maxLength: 65536
+        description: UTF-8 JSON request for this operation only. State is an object with four real entries
+          and an optional four-entry imag vector, ordered 00, 01, 10, 11. Inputs must already have unit
+          norm.
+    required:
+    - request_json
+  inline_files:
+  - mount_path: /input/request.json
+    content: '{{request_json}}'
+  command: --request /input/request.json --output /output
+  output_mount_configurations:
+  - mount_path: /output
+    output_name: referenceResult
+    output_description: JSON result with operation, provenance and scientific limits, or structured failure.
+    auto_promote: false

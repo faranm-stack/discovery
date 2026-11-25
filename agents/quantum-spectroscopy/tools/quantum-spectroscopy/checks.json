@@ -1,0 +1,39 @@
+{
+  "checks": {
+    "dominant_bin_hz": 1,
+    "bin_width_hz": 0.5,
+    "nyquist_hz": 2
+  },
+  "boundary": {
+    "samples": [
+      1,
+      -1,
+      1,
+      -1,
+      1,
+      -1,
+      1,
+      -1
+    ]
+  },
+  "boundary_checks": {
+    "dominant_bin_hz": 2,
+    "nyquist_hz": 2
+  },
+  "invalid": {
+    "samples": [
+      0.1,
+      0.1,
+      0.1,
+      0.1,
+      0.1,
+      0.1,
+      0.1,
+      0.1,
+      0.1,
+      0.1,
+      0.1,
+      0.1
+    ]
+  }
+}

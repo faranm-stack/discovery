@@ -1,0 +1,14 @@
+name: quantum-noise
+type: agent
+version: 0.1.0
+associated_tools:
+- agents/quantum-noise/tools/quantum-noise
+publisher:
+  name: faranm-stack
+  contact: discovery-catalog@microsoft.com
+  support_url: https://techcommunity.microsoft.com/category/azure/discussions/microsoft-discovery-discussions
+description: Check single-qubit relaxation/dephasing parameters and generate analytical decay references.
+tags:
+- quantum
+- calibration
+- cpu-reference

@@ -1,0 +1,20 @@
+{
+  "checks": {
+    "alpha_electrons": 2,
+    "beta_electrons": 2,
+    "spin_orbitals": 8,
+    "chemical_suitability": "not_assessed"
+  },
+  "boundary": {
+    "orbitals": 1,
+    "electrons": 0,
+    "twice_spin": 0
+  },
+  "boundary_checks": {
+    "alpha_electrons": 0,
+    "beta_electrons": 0
+  },
+  "invalid": {
+    "electrons": 3
+  }
+}

@@ -1,0 +1,14 @@
+name: quantum-resources
+type: agent
+version: 0.1.0
+associated_tools:
+- agents/quantum-resources/tools/quantum-resources
+publisher:
+  name: faranm-stack
+  contact: discovery-catalog@microsoft.com
+  support_url: https://techcommunity.microsoft.com/category/azure/discussions/microsoft-discovery-discussions
+description: Calculate transparent resource accounting from explicitly supplied architecture assumptions.
+tags:
+- quantum
+- resource-accounting
+- cpu-reference

@@ -1,0 +1,14 @@
+name: quantum-hamiltonian
+type: agent
+version: 0.1.0
+associated_tools:
+- agents/quantum-hamiltonian/tools/quantum-hamiltonian
+publisher:
+  name: faranm-stack
+  contact: discovery-catalog@microsoft.com
+  support_url: https://techcommunity.microsoft.com/category/azure/discussions/microsoft-discovery-discussions
+description: Build and inspect small Hermitian Pauli Hamiltonians with explicit conventions.
+tags:
+- quantum
+- solver-verification
+- cpu-reference

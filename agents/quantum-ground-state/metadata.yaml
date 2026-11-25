@@ -1,0 +1,14 @@
+name: quantum-ground-state
+type: agent
+version: 0.1.0
+associated_tools:
+- agents/quantum-ground-state/tools/quantum-ground-state
+publisher:
+  name: faranm-stack
+  contact: discovery-catalog@microsoft.com
+  support_url: https://techcommunity.microsoft.com/category/azure/discussions/microsoft-discovery-discussions
+description: Diagonalize a bounded Pauli Hamiltonian and return a checked ground-state reference.
+tags:
+- quantum
+- solver-verification
+- cpu-reference

@@ -1,0 +1,21 @@
+{
+  "operation": "dynamics",
+  "n_qubits": 1,
+  "terms": [
+    {
+      "pauli": "X",
+      "coefficient": 1.0
+    }
+  ],
+  "energy_unit": "rad/s",
+  "state": {
+    "real": [
+      1,
+      0
+    ]
+  },
+  "times_s": [
+    0,
+    1.5707963267948966
+  ]
+}

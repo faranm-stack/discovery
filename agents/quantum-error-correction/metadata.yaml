@@ -1,0 +1,14 @@
+name: quantum-error-correction
+type: agent
+version: 0.1.0
+associated_tools:
+- agents/quantum-error-correction/tools/quantum-error-correction
+publisher:
+  name: faranm-stack
+  contact: discovery-catalog@microsoft.com
+  support_url: https://techcommunity.microsoft.com/category/azure/discussions/microsoft-discovery-discussions
+description: Compute exact majority-decoding logical error for an odd repetition code.
+tags:
+- quantum
+- error-correction
+- cpu-reference

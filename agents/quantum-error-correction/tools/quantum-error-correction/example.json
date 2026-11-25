@@ -1,0 +1,5 @@
+{
+  "operation": "error_correction",
+  "distance": 3,
+  "bit_flip_probability": 0.1
+}

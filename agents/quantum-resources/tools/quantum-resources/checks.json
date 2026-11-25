@@ -1,0 +1,19 @@
+{
+  "checks": {
+    "physical_qubits": 1200,
+    "assumed_serial_runtime_s": 1,
+    "fault_tolerance_verified": false,
+    "monetary_cost": null
+  },
+  "boundary": {
+    "logical_depth": 0,
+    "factory_qubits": 0
+  },
+  "boundary_checks": {
+    "assumed_serial_runtime_s": 0,
+    "physical_qubits": 1000
+  },
+  "invalid": {
+    "physical_per_logical": 1.5
+  }
+}

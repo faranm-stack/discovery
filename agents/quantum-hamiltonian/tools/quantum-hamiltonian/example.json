@@ -1,0 +1,11 @@
+{
+  "operation": "hamiltonian",
+  "n_qubits": 1,
+  "terms": [
+    {
+      "pauli": "Z",
+      "coefficient": 1.0
+    }
+  ],
+  "energy_unit": "hartree"
+}

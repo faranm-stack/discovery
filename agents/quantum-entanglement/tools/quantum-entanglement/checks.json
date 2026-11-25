@@ -1,0 +1,30 @@
+{
+  "checks": {
+    "entropy_bits": 1,
+    "concurrence": 1
+  },
+  "boundary": {
+    "state": {
+      "real": [
+        1,
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "boundary_checks": {
+    "entropy_bits": 0,
+    "concurrence": 0
+  },
+  "invalid": {
+    "state": {
+      "real": [
+        1,
+        0,
+        0,
+        1
+      ]
+    }
+  }
+}

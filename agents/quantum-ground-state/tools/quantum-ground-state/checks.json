@@ -1,0 +1,23 @@
+{
+  "checks": {
+    "ground_energy": -1,
+    "ground_degeneracy": 1,
+    "first_level_gap": 2,
+    "ground_residual": 0
+  },
+  "boundary": {
+    "terms": [
+      {
+        "pauli": "I",
+        "coefficient": 0
+      }
+    ]
+  },
+  "boundary_checks": {
+    "ground_degeneracy": 2,
+    "first_level_gap": 0
+  },
+  "invalid": {
+    "n_qubits": 7
+  }
+}

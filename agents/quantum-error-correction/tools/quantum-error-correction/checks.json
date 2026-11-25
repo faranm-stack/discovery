@@ -1,0 +1,16 @@
+{
+  "checks": {
+    "logical_bit_error_probability": 0.028,
+    "full_quantum_protection": false
+  },
+  "boundary": {
+    "distance": 1,
+    "bit_flip_probability": 1
+  },
+  "boundary_checks": {
+    "logical_bit_error_probability": 1
+  },
+  "invalid": {
+    "distance": 4
+  }
+}

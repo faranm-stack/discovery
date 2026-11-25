@@ -1,0 +1,14 @@
+{
+  "operation": "spectroscopy",
+  "samples": [
+    1,
+    0,
+    -1,
+    0,
+    1,
+    0,
+    -1,
+    0
+  ],
+  "sample_interval_s": 0.25
+}

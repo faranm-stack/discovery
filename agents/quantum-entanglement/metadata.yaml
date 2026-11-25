@@ -1,0 +1,14 @@
+name: quantum-entanglement
+type: agent
+version: 0.1.0
+associated_tools:
+- agents/quantum-entanglement/tools/quantum-entanglement
+publisher:
+  name: faranm-stack
+  contact: discovery-catalog@microsoft.com
+  support_url: https://techcommunity.microsoft.com/category/azure/discussions/microsoft-discovery-discussions
+description: Evaluate bipartite entanglement for normalized two-qubit pure states.
+tags:
+- quantum
+- quantum-information
+- cpu-reference

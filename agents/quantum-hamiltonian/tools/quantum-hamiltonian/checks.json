@@ -1,0 +1,55 @@
+{
+  "checks": {
+    "dimension": 2,
+    "trace": 0,
+    "hermitian_residual": 0,
+    "matrix.real": [
+      [
+        1,
+        0
+      ],
+      [
+        0,
+        -1
+      ]
+    ]
+  },
+  "boundary": {
+    "n_qubits": 2,
+    "terms": [
+      {
+        "pauli": "XI",
+        "coefficient": 1
+      }
+    ],
+    "compare": {
+      "terms": [
+        {
+          "pauli": "IX",
+          "coefficient": 1
+        }
+      ],
+      "energy_unit": "hartree",
+      "left_order": [
+        "A",
+        "B"
+      ],
+      "right_order": [
+        "B",
+        "A"
+      ]
+    }
+  },
+  "boundary_checks": {
+    "comparison.verdict": "equal",
+    "dimension": 4
+  },
+  "invalid": {
+    "terms": [
+      {
+        "pauli": "XX",
+        "coefficient": 1
+      }
+    ]
+  }
+}

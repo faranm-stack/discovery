@@ -1,0 +1,30 @@
+{
+  "checks": {
+    "probabilities": [
+      [
+        1,
+        0
+      ],
+      [
+        0,
+        1
+      ]
+    ]
+  },
+  "boundary": {
+    "times_s": [
+      0
+    ]
+  },
+  "boundary_checks": {
+    "probabilities": [
+      [
+        1,
+        0
+      ]
+    ]
+  },
+  "invalid": {
+    "energy_unit": "eV"
+  }
+}
