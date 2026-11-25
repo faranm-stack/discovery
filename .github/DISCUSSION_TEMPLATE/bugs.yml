@@ -45,7 +45,7 @@ body:
     attributes:
       label: Specific catalog item (Services only)
       description: For Services bugs, name the specific agent, kit, tool, skill, doc file, or script. Leave blank for app bugs.
-      placeholder: "e.g. agents/openfoam, starter-kits/physics-cfd-sim, docs/discovery-app/quickstart.md, utilities/rbac-roles-assignment"
+      placeholder: "e.g. agents/phy-openfoam, starter-kits/physics-cfd-sim, docs/discovery-app/quickstart.md, utilities/rbac-roles-assignment"
     validations:
       required: false
 
@@ -98,7 +98,7 @@ body:
         1. Open a fresh workspace
         2. `dx init --workspace .`   (app)
             — or —
-           `/discovery-services-agent-deployer openfoam`   (services)
+           `/discovery-services-agent-deployer phy-openfoam`   (services)
         3. ...
     validations:
       required: true

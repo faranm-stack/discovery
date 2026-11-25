@@ -1,7 +1,7 @@
 {
   "$schema": "../../docs/schemas/starter-kit-schema.json",
   "name": "physics-cfd-sim",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Simulate and analyze computational fluid dynamics (CFD) scenarios using OpenFOAM.",
   "displayName": "CFD Simulation",
   "longDescription": "# CFD Simulation\n\nThis starter kit allows users to simulate and analyze computational fluid dynamics (CFD) scenarios using OpenFOAM.\n\n**What you can do:**\n- Simulate internal pipe flow and extract pressure drop metrics\n- Analyze axial fan performance using the MRF approach\n- Evaluate external flow over bodies in a box domain\n\n**Ideal for:** engineering analysis, fluid dynamics research, and performance optimization.",
@@ -25,10 +25,10 @@
   "lifecycle": "active",
   "agentRefs": [
     {
-      "ref": "agents/openfoam",
+      "ref": "agents/phy-openfoam",
       "role": "primary",
       "required": true,
-      "description": "Runs OpenFOAM simulations based on user-supplied parameters."
+      "description": "Designs and runs OpenFOAM simulations; deterministic checks on solver evidence decide whether each result is accepted."
     }
   ],
   "samplePrompts": [
