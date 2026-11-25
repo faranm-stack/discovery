@@ -1,0 +1,13 @@
+# Catalog smoke validation
+
+The [manual workflow](../workflows/catalog-smoke-plan.yml) inventories the checkout and plans one documented task per agent where possible. It sends **zero prompts**. It has read-only repository access, no live option, no schedule, no cloud credentials and no artifact upload. The final log shows counts; a schema pass is not a runtime pass.
+
+From the repository root, install the existing [validator requirements](../requirements-ci.txt) with Python 3.12. Run `python .github/scripts/catalog_sweep.py --mode plan --output-dir <new-directory>` (optionally `--studio-probe` to plan only AiZynthFinder, AutoDock and BindingDB). Use a new output directory outside the checkout. Read `catalog-results.json` for the ledger and `catalog-plan.json` for task provenance, declared inputs, blockers and fingerprints. No input files are downloaded. A missing task or unresolved input requirement is not permission to invent one.
+
+## Protected-host integration (not enabled here)
+
+The [sweep module](catalog_sweep.py) exposes `execute_sweep` and read-only `reconcile_sweep`. A separate, approved host must pin reviewed code and catalog revisions, validate the target and staged input assets, set invocation/worker limits, and supply its credential and restricted output directory. The runner checks existing deployments; it does not create or replace agents or tools. Each submitted task uses a [Studio conversation](run_catalog_smoke.py) named for its investigation, preserving the submitted prompt and returned response. Human confirmations are not approved automatically. A client timeout does not cancel a remote job; reconcile before retrying. A tool-backed pass requires correlated result evidence, not a fluent answer.
+
+To render a saved ledger offline: `python .github/scripts/build_agent_scorecard.py --ledger <ledger> --public-dir <empty-share-directory> --private-dir <restricted-directory>`. Use separate, non-nested destinations. Each report is one standalone HTML file. The public view contains allowlisted status fields, not prompts, usage, reasons or identifiers for Studio sessions. The private view shows recorded diagnostics; absent metrics remain unknown. The caller controls access: do not put the private file, full plan, ledger or raw evidence in a public artifact or job summary.
+
+Before enabling a live host, require a separately approved read-only preflight, then a three-agent check of the actual Studio turns and both reports. A full sweep and recurring schedule require separate approval; neither is part of this workflow.
